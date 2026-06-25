@@ -1,0 +1,24 @@
+{
+  "id": "teams_chat_workflow",
+  "name": "Teams: search chat, reply, format, send, switch channel",
+  "frequency": "constant",
+  "weight": 1.0,
+  "steps": [
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Hold Mouse" },
+    { "action": "press", "layer": 2, "key": "1:2", "desc": "MB1 click chat" },
+    { "action": "release_layer", "desc": "Release Mouse" },
+    { "action": "hold_layer", "layer": 1, "key": "3:4", "desc": "Hold Nav" },
+    { "action": "press", "layer": 1, "key": "8:2", "desc": "Arrow down to read messages" },
+    { "action": "press", "layer": 1, "key": "8:2", "desc": "Arrow down more" },
+    { "action": "press", "layer": 1, "key": "9:2", "desc": "Arrow up to scroll back" },
+    { "action": "release_layer", "desc": "Release Nav" },
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Hold Mouse" },
+    { "action": "press", "layer": 2, "key": "1:2", "desc": "MB1 click reply box" },
+    { "action": "release_layer", "desc": "Release Mouse" },
+    { "action": "press", "layer": 0, "key": "7:5", "desc": "Enter to send" },
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Hold Mouse" },
+    { "action": "press", "layer": 2, "key": "4:3", "desc": "Paste (Ctrl+V)" },
+    { "action": "press", "layer": 2, "key": "3:1", "desc": "Enter to send pasted content" },
+    { "action": "release_layer", "desc": "Release Mouse" }
+  ]
+}

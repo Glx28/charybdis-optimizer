@@ -1,0 +1,58 @@
+{
+  "id": "outlook",
+  "name": "Microsoft Outlook",
+  "version": "Outlook 365+ / New Outlook",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Mail Navigation",
+      "shortcuts": [
+        { "keys": "Ctrl+1", "action": "Switch to Mail", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "1", "context": "always" },
+        { "keys": "Ctrl+2", "action": "Switch to Calendar", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "2", "context": "always" },
+        { "keys": "Ctrl+3", "action": "Switch to Contacts", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "3", "context": "always" },
+        { "keys": "Ctrl+Shift+I", "action": "Go to Inbox", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "I", "context": "always" },
+        { "keys": "Ctrl+E", "action": "Search", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "E", "context": "always" },
+        { "keys": "F3", "action": "Search (alt)", "frequency": "medium", "modifiers": [], "base_key": "F3", "context": "always" },
+        { "keys": "F9", "action": "Send/Receive all", "frequency": "medium", "modifiers": [], "base_key": "F9", "context": "always" }
+      ]
+    },
+    {
+      "name": "Mail Actions",
+      "shortcuts": [
+        { "keys": "Ctrl+N", "action": "New mail", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "N", "context": "always" },
+        { "keys": "Ctrl+R", "action": "Reply", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "R", "context": "always" },
+        { "keys": "Ctrl+Shift+R", "action": "Reply all", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "R", "context": "always" },
+        { "keys": "Ctrl+F", "action": "Forward", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "F", "context": "always" },
+        { "keys": "Ctrl+Enter", "action": "Send message", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "Enter", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+M", "action": "New message (alt)", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "M", "context": "always" },
+        { "keys": "Delete", "action": "Delete message", "frequency": "high", "modifiers": [], "base_key": "Delete", "context": "always" },
+        { "keys": "Ctrl+D", "action": "Delete (alt)", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "D", "context": "always" },
+        { "keys": "Ctrl+Q", "action": "Mark as read", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Q", "context": "always" },
+        { "keys": "Ctrl+U", "action": "Mark as unread", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "U", "context": "always" },
+        { "keys": "Ctrl+Shift+G", "action": "Flag / follow up", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "G", "context": "always" }
+      ]
+    },
+    {
+      "name": "Editing",
+      "shortcuts": [
+        { "keys": "Ctrl+C", "action": "Copy", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "C", "context": "always" },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "V", "context": "always" },
+        { "keys": "Ctrl+Z", "action": "Undo", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Z", "context": "text-editing" },
+        { "keys": "Ctrl+A", "action": "Select all", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "A", "context": "text-editing" },
+        { "keys": "Ctrl+B", "action": "Bold", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "B", "context": "text-editing" },
+        { "keys": "Ctrl+I", "action": "Italic", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "I", "context": "text-editing" },
+        { "keys": "Ctrl+K", "action": "Insert hyperlink", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "K", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+V", "action": "Paste as plain text", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "V", "context": "text-editing" }
+      ]
+    },
+    {
+      "name": "Calendar",
+      "shortcuts": [
+        { "keys": "Ctrl+Shift+A", "action": "New appointment", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "A", "context": "always" },
+        { "keys": "Ctrl+Shift+Q", "action": "New meeting", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "Q", "context": "always" },
+        { "keys": "Alt+Down", "action": "Next week (month view)", "frequency": "medium", "modifiers": ["Alt"], "base_key": "Down", "context": "always" },
+        { "keys": "Alt+Up", "action": "Previous week", "frequency": "medium", "modifiers": ["Alt"], "base_key": "Up", "context": "always" }
+      ]
+    }
+  ]
+}

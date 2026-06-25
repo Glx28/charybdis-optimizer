@@ -1,0 +1,72 @@
+{
+  "id": "notepadpp",
+  "name": "Notepad++",
+  "version": "8.6+",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "File",
+      "shortcuts": [
+        { "keys": "Ctrl+N", "action": "New file", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "N", "context": "always" },
+        { "keys": "Ctrl+O", "action": "Open file", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "O", "context": "always" },
+        { "keys": "Ctrl+S", "action": "Save", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "S", "context": "always" },
+        { "keys": "Ctrl+Shift+S", "action": "Save as", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "S", "context": "always" },
+        { "keys": "Ctrl+W", "action": "Close tab", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "W", "context": "always" },
+        { "keys": "Ctrl+Tab", "action": "Next tab", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Tab", "context": "always" },
+        { "keys": "Ctrl+Shift+Tab", "action": "Previous tab", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "Tab", "context": "always" },
+        { "keys": "Ctrl+P", "action": "Print", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "P", "context": "always" }
+      ]
+    },
+    {
+      "name": "Editing",
+      "shortcuts": [
+        { "keys": "Ctrl+C", "action": "Copy", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "C", "context": "always" },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "V", "context": "always" },
+        { "keys": "Ctrl+X", "action": "Cut", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "X", "context": "always" },
+        { "keys": "Ctrl+Z", "action": "Undo", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "Z", "context": "always" },
+        { "keys": "Ctrl+Y", "action": "Redo", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Y", "context": "always" },
+        { "keys": "Ctrl+D", "action": "Duplicate line", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "D", "context": "text-editing" },
+        { "keys": "Ctrl+L", "action": "Delete line", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "L", "context": "text-editing" },
+        { "keys": "Ctrl+T", "action": "Swap line with above", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "T", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+Up", "action": "Move line up", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "Up", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+Down", "action": "Move line down", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "Down", "context": "text-editing" },
+        { "keys": "Ctrl+Q", "action": "Toggle comment", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Q", "context": "text-editing" },
+        { "keys": "Tab", "action": "Indent", "frequency": "constant", "modifiers": [], "base_key": "Tab", "context": "text-editing" },
+        { "keys": "Shift+Tab", "action": "Outdent", "frequency": "high", "modifiers": ["Shift"], "base_key": "Tab", "context": "text-editing" },
+        { "keys": "Ctrl+A", "action": "Select all", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "A", "context": "always" },
+        { "keys": "Ctrl+Shift+V", "action": "Paste from clipboard history", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "V", "context": "text-editing" }
+      ]
+    },
+    {
+      "name": "Search",
+      "shortcuts": [
+        { "keys": "Ctrl+F", "action": "Find", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "F", "context": "always" },
+        { "keys": "Ctrl+H", "action": "Replace", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "H", "context": "always" },
+        { "keys": "F3", "action": "Find next", "frequency": "high", "modifiers": [], "base_key": "F3", "context": "always" },
+        { "keys": "Shift+F3", "action": "Find previous", "frequency": "medium", "modifiers": ["Shift"], "base_key": "F3", "context": "always" },
+        { "keys": "Ctrl+Shift+F", "action": "Find in files", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "F", "context": "always" },
+        { "keys": "Ctrl+G", "action": "Go to line", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "G", "context": "always" }
+      ]
+    },
+    {
+      "name": "View",
+      "shortcuts": [
+        { "keys": "Ctrl++", "action": "Zoom in", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "+", "context": "always" },
+        { "keys": "Ctrl+-", "action": "Zoom out", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "-", "context": "always" },
+        { "keys": "Ctrl+0", "action": "Reset zoom", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "0", "context": "always" },
+        { "keys": "F11", "action": "Fullscreen", "frequency": "low", "modifiers": [], "base_key": "F11", "context": "always" },
+        { "keys": "Ctrl+Shift+W", "action": "Word wrap toggle", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "W", "context": "always" },
+        { "keys": "Alt+0", "action": "Fold all", "frequency": "low", "modifiers": ["Alt"], "base_key": "0", "context": "text-editing" },
+        { "keys": "Alt+Shift+0", "action": "Unfold all", "frequency": "low", "modifiers": ["Alt", "Shift"], "base_key": "0", "context": "text-editing" }
+      ]
+    },
+    {
+      "name": "Bookmarks",
+      "shortcuts": [
+        { "keys": "Ctrl+F2", "action": "Toggle bookmark", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "F2", "context": "text-editing" },
+        { "keys": "F2", "action": "Next bookmark", "frequency": "medium", "modifiers": [], "base_key": "F2", "context": "text-editing" },
+        { "keys": "Shift+F2", "action": "Previous bookmark", "frequency": "low", "modifiers": ["Shift"], "base_key": "F2", "context": "text-editing" }
+      ]
+    }
+  ]
+}

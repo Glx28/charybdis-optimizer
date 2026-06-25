@@ -1,0 +1,20 @@
+{
+  "id": "presentation_mode",
+  "name": "PowerPoint: open, present, navigate slides, end",
+  "frequency": "medium",
+  "weight": 0.5,
+  "steps": [
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Hold Mouse — navigate to file" },
+    { "action": "press", "layer": 2, "key": "1:2", "desc": "MB1 double-click to open" },
+    { "action": "release_layer", "desc": "Release Mouse" },
+    { "action": "hold_layer", "layer": 1, "key": "3:4", "desc": "Hold Nav" },
+    { "action": "press", "layer": 1, "key": "4:0", "desc": "F5 start slideshow" },
+    { "action": "release_layer", "desc": "Release Nav" },
+    { "action": "press", "layer": 0, "key": "7:5", "desc": "Enter / next slide" },
+    { "action": "press", "layer": 0, "key": "7:5", "desc": "Enter / next slide" },
+    { "action": "press", "layer": 0, "key": "7:5", "desc": "Enter / next slide" },
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Hold Mouse" },
+    { "action": "press", "layer": 2, "key": "2:1", "desc": "Esc end slideshow" },
+    { "action": "release_layer", "desc": "Release Mouse" }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "id": "mfiles",
+  "name": "M-Files Desktop Client",
+  "version": "M-Files 24.x",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Search & Navigation",
+      "shortcuts": [
+        { "keys": "Ctrl+F", "action": "Quick search", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "F", "context": "always", "charybdis_layer": 1 },
+        { "keys": "Ctrl+Shift+F", "action": "Advanced search", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "F", "context": "always" },
+        { "keys": "Ctrl+G", "action": "Go to vault", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "G", "context": "always" },
+        { "keys": "Enter", "action": "Open / expand selected", "frequency": "constant", "modifiers": [], "base_key": "Enter", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Backspace", "action": "Go back / up", "frequency": "high", "modifiers": [], "base_key": "Backspace", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Alt+Left", "action": "Navigate back", "frequency": "high", "modifiers": ["Alt"], "base_key": "Left", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Alt+Right", "action": "Navigate forward", "frequency": "medium", "modifiers": ["Alt"], "base_key": "Right", "context": "always", "charybdis_layer": 2 },
+        { "keys": "F5", "action": "Refresh view", "frequency": "high", "modifiers": [], "base_key": "F5", "context": "always", "charybdis_layer": 1 }
+      ]
+    },
+    {
+      "name": "Document Operations",
+      "shortcuts": [
+        { "keys": "Ctrl+E", "action": "Check out document", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "E", "context": "always" },
+        { "keys": "Ctrl+Shift+E", "action": "Check in document", "frequency": "constant", "modifiers": ["Ctrl", "Shift"], "base_key": "E", "context": "always" },
+        { "keys": "Ctrl+Shift+U", "action": "Undo checkout", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "U", "context": "always" },
+        { "keys": "Ctrl+N", "action": "New document/object", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "N", "context": "always" },
+        { "keys": "Ctrl+O", "action": "Open document", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "O", "context": "always" },
+        { "keys": "Ctrl+S", "action": "Save / check in", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "S", "context": "always" },
+        { "keys": "F2", "action": "Rename object", "frequency": "high", "modifiers": [], "base_key": "F2", "context": "always", "charybdis_layer": 1 },
+        { "keys": "Delete", "action": "Delete (to recycle)", "frequency": "medium", "modifiers": [], "base_key": "Delete", "context": "always" },
+        { "keys": "Ctrl+Shift+D", "action": "Download copy", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "D", "context": "always" },
+        { "keys": "Ctrl+P", "action": "Print", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "P", "context": "always" }
+      ]
+    },
+    {
+      "name": "Metadata & Properties",
+      "shortcuts": [
+        { "keys": "Alt+Enter", "action": "Properties / metadata card", "frequency": "constant", "modifiers": ["Alt"], "base_key": "Enter", "context": "always" },
+        { "keys": "Ctrl+I", "action": "Object info", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "I", "context": "always" },
+        { "keys": "Ctrl+Shift+C", "action": "Copy object link", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "C", "context": "always" },
+        { "keys": "Ctrl+K", "action": "Add relationship", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "K", "context": "always" },
+        { "keys": "Ctrl+Shift+H", "action": "Version history", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "H", "context": "always" }
+      ]
+    },
+    {
+      "name": "Views & Selection",
+      "shortcuts": [
+        { "keys": "Ctrl+A", "action": "Select all", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "A", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+1", "action": "Switch to list view", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "1", "context": "always" },
+        { "keys": "Ctrl+2", "action": "Switch to icon view", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "2", "context": "always" },
+        { "keys": "Ctrl+Shift+G", "action": "Group by", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "G", "context": "always" },
+        { "keys": "Ctrl+H", "action": "History view", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "H", "context": "always", "charybdis_layer": 1 }
+      ]
+    },
+    {
+      "name": "Workflow & Assignments",
+      "shortcuts": [
+        { "keys": "Ctrl+Shift+W", "action": "Change workflow state", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "W", "context": "always" },
+        { "keys": "Ctrl+Shift+A", "action": "Assign to user", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "A", "context": "always" },
+        { "keys": "Ctrl+M", "action": "Add to favorites", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "M", "context": "always" },
+        { "keys": "Ctrl+Shift+F5", "action": "Send notification", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "F5", "context": "always" }
+      ]
+    },
+    {
+      "name": "Clipboard & Edit",
+      "shortcuts": [
+        { "keys": "Ctrl+C", "action": "Copy", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "C", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "V", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+X", "action": "Cut", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "X", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Z", "action": "Undo", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Z", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Y", "action": "Redo", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "Y", "context": "always", "charybdis_layer": 2 }
+      ]
+    }
+  ]
+}

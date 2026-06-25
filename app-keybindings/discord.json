@@ -1,0 +1,39 @@
+{
+  "id": "discord",
+  "name": "Discord",
+  "version": "Desktop 2024+",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Navigation",
+      "shortcuts": [
+        { "keys": "Ctrl+K", "action": "Quick switcher", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "K", "context": "always" },
+        { "keys": "Alt+Up", "action": "Previous channel", "frequency": "high", "modifiers": ["Alt"], "base_key": "Up", "context": "always" },
+        { "keys": "Alt+Down", "action": "Next channel", "frequency": "high", "modifiers": ["Alt"], "base_key": "Down", "context": "always" },
+        { "keys": "Alt+Shift+Up", "action": "Previous unread", "frequency": "medium", "modifiers": ["Alt", "Shift"], "base_key": "Up", "context": "always" },
+        { "keys": "Alt+Shift+Down", "action": "Next unread", "frequency": "medium", "modifiers": ["Alt", "Shift"], "base_key": "Down", "context": "always" },
+        { "keys": "Ctrl+Shift+I", "action": "Open inbox", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "I", "context": "always" },
+        { "keys": "Escape", "action": "Close popups / deselect", "frequency": "high", "modifiers": [], "base_key": "Escape", "context": "always" }
+      ]
+    },
+    {
+      "name": "Messaging",
+      "shortcuts": [
+        { "keys": "Enter", "action": "Send message", "frequency": "constant", "modifiers": [], "base_key": "Enter", "context": "text-editing" },
+        { "keys": "Shift+Enter", "action": "New line", "frequency": "high", "modifiers": ["Shift"], "base_key": "Enter", "context": "text-editing" },
+        { "keys": "Up", "action": "Edit last message", "frequency": "high", "modifiers": [], "base_key": "Up", "context": "always" },
+        { "keys": "Ctrl+B", "action": "Bold", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "B", "context": "text-editing" },
+        { "keys": "Ctrl+I", "action": "Italic", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "I", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+X", "action": "Strikethrough", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "X", "context": "text-editing" },
+        { "keys": "Ctrl+E", "action": "Search", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "E", "context": "always" }
+      ]
+    },
+    {
+      "name": "Voice & Video",
+      "shortcuts": [
+        { "keys": "Ctrl+Shift+M", "action": "Toggle mute", "frequency": "constant", "modifiers": ["Ctrl", "Shift"], "base_key": "M", "context": "always" },
+        { "keys": "Ctrl+Shift+D", "action": "Toggle deafen", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "D", "context": "always" }
+      ]
+    }
+  ]
+}

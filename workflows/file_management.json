@@ -1,0 +1,24 @@
+{
+  "id": "file_management",
+  "name": "Explorer: navigate, rename, copy files, new folder",
+  "frequency": "high",
+  "weight": 0.75,
+  "steps": [
+    { "action": "hold_layer", "layer": 3, "key": "8:4", "desc": "Hold Window" },
+    { "action": "press", "layer": 3, "key": "10:3", "desc": "Win+E open Explorer" },
+    { "action": "release_layer", "desc": "Release Window" },
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Hold Mouse" },
+    { "action": "press", "layer": 2, "key": "1:2", "desc": "MB1 click folder" },
+    { "action": "press", "layer": 2, "key": "1:2", "desc": "MB1 double-click to open" },
+    { "action": "press", "layer": 2, "key": "3:1", "desc": "Enter to open" },
+    { "action": "release_layer", "desc": "Release Mouse" },
+    { "action": "hold_layer", "layer": 1, "key": "3:4", "desc": "Hold Nav for F2" },
+    { "action": "press", "layer": 1, "key": "1:0", "desc": "F2 rename" },
+    { "action": "release_layer", "desc": "Release Nav" },
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Hold Mouse" },
+    { "action": "press", "layer": 2, "key": "1:2", "desc": "MB1 select file" },
+    { "action": "press", "layer": 2, "key": "3:3", "desc": "Copy (Ctrl+C)" },
+    { "action": "press", "layer": 2, "key": "4:3", "desc": "Paste (Ctrl+V)" },
+    { "action": "release_layer", "desc": "Release Mouse" }
+  ]
+}

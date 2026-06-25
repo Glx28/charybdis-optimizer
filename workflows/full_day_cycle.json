@@ -1,0 +1,29 @@
+{
+  "id": "full_day_cycle",
+  "name": "Full day: browse, code, M-Files, window manage, return",
+  "frequency": "high",
+  "weight": 1.0,
+  "steps": [
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Mouse hold — browse web" },
+    { "action": "press", "layer": 2, "key": "1:2", "desc": "MB1 click" },
+    { "action": "press", "layer": 2, "key": "3:3", "desc": "Copy" },
+    { "action": "press", "layer": 2, "key": "1:1", "desc": "Alt+Tab to editor" },
+    { "action": "release_layer", "desc": "Release Mouse" },
+    { "action": "hold_layer", "layer": 1, "key": "3:4", "desc": "Hold Nav" },
+    { "action": "press", "layer": 1, "key": "0:1", "desc": "Toggle Code (L5)" },
+    { "action": "release_layer", "desc": "Release Nav (on L5)" },
+    { "action": "press", "layer": 5, "key": "1:2", "desc": "Save" },
+    { "action": "press", "layer": 5, "key": "5:2", "desc": "Toggle terminal" },
+    { "action": "press", "layer": 5, "key": "7:4", "desc": "Exit Code to base" },
+    { "action": "hold_layer", "layer": 3, "key": "8:4", "desc": "Hold Window" },
+    { "action": "press", "layer": 3, "key": "1:3", "desc": "Win+Left snap" },
+    { "action": "press", "layer": 3, "key": "2:2", "desc": "Win+2 taskbar app" },
+    { "action": "release_layer", "desc": "Release Window" },
+    { "action": "hold_layer", "layer": 4, "key": "7:4", "desc": "Hold System" },
+    { "action": "press", "layer": 4, "key": "2:3", "desc": "Toggle M-Files (L9)" },
+    { "action": "release_layer", "desc": "Release System (on L9)" },
+    { "action": "press", "layer": 9, "key": "1:2", "desc": "Check out" },
+    { "action": "press", "layer": 9, "key": "7:2", "desc": "Properties" },
+    { "action": "press", "layer": 9, "key": "7:4", "desc": "Exit M-Files to base" }
+  ]
+}

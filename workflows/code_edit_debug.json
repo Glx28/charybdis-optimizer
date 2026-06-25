@@ -1,0 +1,19 @@
+{
+  "id": "code_edit_debug",
+  "name": "Code: edit file, comment, save, debug, step through",
+  "frequency": "high",
+  "weight": 0.9,
+  "steps": [
+    { "action": "hold_layer", "layer": 1, "key": "3:4", "desc": "Hold Nav (L thumb)" },
+    { "action": "press", "layer": 1, "key": "0:1", "desc": "Toggle Code layer (L5)" },
+    { "action": "release_layer", "desc": "Release Nav (now on L5)" },
+    { "action": "press", "layer": 5, "key": "3:2", "desc": "Toggle comment (Ctrl+/)" },
+    { "action": "press", "layer": 5, "key": "1:2", "desc": "Save (Ctrl+S)" },
+    { "action": "press", "layer": 5, "key": "1:0", "desc": "Start debug (F5)" },
+    { "action": "press", "layer": 5, "key": "3:0", "desc": "Step over (F10)" },
+    { "action": "press", "layer": 5, "key": "4:0", "desc": "Step into (F11)" },
+    { "action": "press", "layer": 5, "key": "7:0", "desc": "Toggle breakpoint (F9)" },
+    { "action": "press", "layer": 5, "key": "2:0", "desc": "Stop debug (Shift+F5)" },
+    { "action": "press", "layer": 5, "key": "7:4", "desc": "Exit to base" }
+  ]
+}

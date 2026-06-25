@@ -1,0 +1,20 @@
+{
+  "id": "mfiles_checkout_edit",
+  "name": "M-Files: search, check out, edit, check in",
+  "frequency": "high",
+  "weight": 0.85,
+  "steps": [
+    { "action": "hold_layer", "layer": 4, "key": "7:4", "desc": "Hold System (R thumb)" },
+    { "action": "press", "layer": 4, "key": "2:3", "desc": "Toggle M-Files layer (L9)" },
+    { "action": "release_layer", "desc": "Release System (now on L9)" },
+    { "action": "press", "layer": 9, "key": "1:2", "desc": "Check out (Ctrl+E)" },
+    { "action": "press", "layer": 9, "key": "7:2", "desc": "Properties (Alt+Enter)" },
+    { "action": "press", "layer": 9, "key": "7:4", "desc": "Exit to base (edit document)" },
+    { "action": "hold_layer", "layer": 4, "key": "7:4", "desc": "Hold System again" },
+    { "action": "press", "layer": 4, "key": "2:3", "desc": "Toggle M-Files layer" },
+    { "action": "release_layer", "desc": "Release System (back on L9)" },
+    { "action": "press", "layer": 9, "key": "3:2", "desc": "Save (Ctrl+S)" },
+    { "action": "press", "layer": 9, "key": "2:2", "desc": "Check in (Ctrl+Shift+E)" },
+    { "action": "press", "layer": 9, "key": "7:4", "desc": "Exit to base" }
+  ]
+}

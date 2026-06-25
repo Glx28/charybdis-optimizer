@@ -1,0 +1,90 @@
+{
+  "id": "windows",
+  "name": "Windows 11",
+  "version": "Windows 11 24H2+",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Window Management",
+      "shortcuts": [
+        { "keys": "Alt+Tab", "action": "Switch apps", "frequency": "constant", "modifiers": ["Alt"], "base_key": "Tab", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Alt+F4", "action": "Close window", "frequency": "high", "modifiers": ["Alt"], "base_key": "F4", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Win+D", "action": "Show/hide desktop", "frequency": "high", "modifiers": ["Win"], "base_key": "D", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Win+Tab", "action": "Task View", "frequency": "high", "modifiers": ["Win"], "base_key": "Tab", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Win+Left", "action": "Snap window left", "frequency": "constant", "modifiers": ["Win"], "base_key": "Left", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+Right", "action": "Snap window right", "frequency": "constant", "modifiers": ["Win"], "base_key": "Right", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+Up", "action": "Maximize window", "frequency": "high", "modifiers": ["Win"], "base_key": "Up", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+Down", "action": "Minimize / restore", "frequency": "high", "modifiers": ["Win"], "base_key": "Down", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+Shift+Left", "action": "Move to left monitor", "frequency": "high", "modifiers": ["Win", "Shift"], "base_key": "Left", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+Shift+Right", "action": "Move to right monitor", "frequency": "high", "modifiers": ["Win", "Shift"], "base_key": "Right", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+M", "action": "Minimize all windows", "frequency": "low", "modifiers": ["Win"], "base_key": "M", "context": "always" },
+        { "keys": "Win+Home", "action": "Minimize all except active", "frequency": "rare", "modifiers": ["Win"], "base_key": "Home", "context": "always" }
+      ]
+    },
+    {
+      "name": "Virtual Desktops",
+      "shortcuts": [
+        { "keys": "Win+Ctrl+D", "action": "New virtual desktop", "frequency": "medium", "modifiers": ["Win", "Ctrl"], "base_key": "D", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+Ctrl+Left", "action": "Switch desktop left", "frequency": "medium", "modifiers": ["Win", "Ctrl"], "base_key": "Left", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+Ctrl+Right", "action": "Switch desktop right", "frequency": "medium", "modifiers": ["Win", "Ctrl"], "base_key": "Right", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+Ctrl+F4", "action": "Close current desktop", "frequency": "low", "modifiers": ["Win", "Ctrl"], "base_key": "F4", "context": "always", "charybdis_layer": 3 }
+      ]
+    },
+    {
+      "name": "System Shortcuts",
+      "shortcuts": [
+        { "keys": "Win+S", "action": "Search", "frequency": "constant", "modifiers": ["Win"], "base_key": "S", "context": "always", "charybdis_layer": 1 },
+        { "keys": "Win+E", "action": "File Explorer", "frequency": "high", "modifiers": ["Win"], "base_key": "E", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+I", "action": "Settings", "frequency": "medium", "modifiers": ["Win"], "base_key": "I", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+L", "action": "Lock PC", "frequency": "medium", "modifiers": ["Win"], "base_key": "L", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+R", "action": "Run dialog", "frequency": "medium", "modifiers": ["Win"], "base_key": "R", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+X", "action": "Power User menu", "frequency": "medium", "modifiers": ["Win"], "base_key": "X", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+V", "action": "Clipboard history", "frequency": "high", "modifiers": ["Win"], "base_key": "V", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+Shift+S", "action": "Screenshot (Snip)", "frequency": "high", "modifiers": ["Win", "Shift"], "base_key": "S", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+.", "action": "Emoji picker", "frequency": "medium", "modifiers": ["Win"], "base_key": ".", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+Esc", "action": "Task Manager", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "Esc", "context": "always" },
+        { "keys": "Win+Pause", "action": "System info", "frequency": "rare", "modifiers": ["Win"], "base_key": "Pause", "context": "always" },
+        { "keys": "Win+P", "action": "Project / display mode", "frequency": "low", "modifiers": ["Win"], "base_key": "P", "context": "always" },
+        { "keys": "Win+K", "action": "Connect / Cast", "frequency": "rare", "modifiers": ["Win"], "base_key": "K", "context": "always" },
+        { "keys": "Win+A", "action": "Quick settings / Action center", "frequency": "low", "modifiers": ["Win"], "base_key": "A", "context": "always" },
+        { "keys": "Win+N", "action": "Notification center", "frequency": "low", "modifiers": ["Win"], "base_key": "N", "context": "always" }
+      ]
+    },
+    {
+      "name": "Taskbar",
+      "shortcuts": [
+        { "keys": "Win+1", "action": "Open/switch pinned app 1", "frequency": "constant", "modifiers": ["Win"], "base_key": "1", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+2", "action": "Open/switch pinned app 2", "frequency": "high", "modifiers": ["Win"], "base_key": "2", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+3", "action": "Open/switch pinned app 3", "frequency": "high", "modifiers": ["Win"], "base_key": "3", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+4", "action": "Open/switch pinned app 4", "frequency": "medium", "modifiers": ["Win"], "base_key": "4", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+5", "action": "Open/switch pinned app 5", "frequency": "medium", "modifiers": ["Win"], "base_key": "5", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Win+T", "action": "Cycle taskbar apps", "frequency": "low", "modifiers": ["Win"], "base_key": "T", "context": "always" },
+        { "keys": "Win+B", "action": "Focus system tray", "frequency": "low", "modifiers": ["Win"], "base_key": "B", "context": "always" }
+      ]
+    },
+    {
+      "name": "Input & Language",
+      "shortcuts": [
+        { "keys": "Win+H", "action": "Voice typing", "frequency": "high", "modifiers": ["Win"], "base_key": "H", "context": "text-editing", "charybdis_layer": 3 },
+        { "keys": "Win+Space", "action": "Switch input language", "frequency": "high", "modifiers": ["Win"], "base_key": "Space", "context": "always", "charybdis_layer": 3 },
+        { "keys": "Alt+Shift", "action": "Switch keyboard layout (alt)", "frequency": "medium", "modifiers": ["Alt", "Shift"], "base_key": "", "context": "always" },
+        { "keys": "Win+C", "action": "Open Copilot", "frequency": "high", "modifiers": ["Win"], "base_key": "C", "context": "always", "charybdis_layer": 3, "notes": "May vary by Windows version; some versions use Win+Copilot key" },
+        { "keys": "Win+;", "action": "Emoji picker", "frequency": "medium", "modifiers": ["Win"], "base_key": ";", "context": "text-editing" },
+        { "keys": "Win+.", "action": "Emoji picker (alt)", "frequency": "medium", "modifiers": ["Win"], "base_key": ".", "context": "text-editing" }
+      ]
+    },
+    {
+      "name": "Universal Clipboard & Edit",
+      "shortcuts": [
+        { "keys": "Ctrl+C", "action": "Copy", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "C", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "V", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+X", "action": "Cut", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "X", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Z", "action": "Undo", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Z", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Y", "action": "Redo", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "Y", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+A", "action": "Select all", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "A", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Delete", "action": "Delete", "frequency": "high", "modifiers": [], "base_key": "Delete", "context": "always" },
+        { "keys": "F2", "action": "Rename", "frequency": "high", "modifiers": [], "base_key": "F2", "context": "file-management", "charybdis_layer": 1 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "browser_vimium",
+  "name": "Browser+Vimium: keyboard nav, open links, scroll, tabs",
+  "frequency": "high",
+  "weight": 0.85,
+  "steps": [
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Hold Mouse — position initially" },
+    { "action": "press", "layer": 2, "key": "1:2", "desc": "MB1 click page to focus" },
+    { "action": "release_layer", "desc": "Release Mouse — now Vimium active" },
+    { "action": "press", "layer": 0, "key": "8:2", "desc": "Type J (Vimium scroll down)" },
+    { "action": "press", "layer": 0, "key": "8:2", "desc": "J scroll down more" },
+    { "action": "press", "layer": 0, "key": "9:2", "desc": "Type K (Vimium scroll up)" },
+    { "action": "press", "layer": 0, "key": "4:2", "desc": "Type F (Vimium show link hints)" },
+    { "action": "press", "layer": 0, "key": "7:5", "desc": "Enter (follow link)" },
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Hold Mouse" },
+    { "action": "press", "layer": 2, "key": "3:0", "desc": "Next tab (Ctrl+Tab)" },
+    { "action": "press", "layer": 2, "key": "5:1", "desc": "Close tab (Ctrl+W)" },
+    { "action": "release_layer", "desc": "Release Mouse" }
+  ]
+}

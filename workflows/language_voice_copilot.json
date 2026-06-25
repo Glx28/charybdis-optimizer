@@ -1,0 +1,23 @@
+{
+  "id": "language_voice_copilot",
+  "name": "Language switch, voice typing, Copilot launch",
+  "frequency": "medium",
+  "weight": 0.7,
+  "steps": [
+    { "action": "hold_layer", "layer": 3, "key": "7:4", "desc": "Hold Window (L3 right thumb)" },
+    { "action": "press", "layer": 3, "key": "11:0", "desc": "Win+Space (switch input language — L3 x11,y0)" },
+    { "action": "release_layer", "desc": "Release Window" },
+    { "action": "press", "layer": 0, "key": "11:2", "desc": "Type ø (SemiColon) — Norwegian input active" },
+    { "action": "press", "layer": 0, "key": "12:2", "desc": "Type æ (Apostrophe)" },
+    { "action": "press", "layer": 0, "key": "12:1", "desc": "Type å (LeftBrace)" },
+    { "action": "hold_layer", "layer": 3, "key": "7:4", "desc": "Hold Window again" },
+    { "action": "press", "layer": 3, "key": "11:0", "desc": "Win+Space (switch back to US English for code)" },
+    { "action": "release_layer", "desc": "Release Window" },
+    { "action": "hold_layer", "layer": 3, "key": "7:4", "desc": "Hold Window" },
+    { "action": "press", "layer": 3, "key": "12:0", "desc": "Win+H (voice typing — L3 x12,y0)" },
+    { "action": "release_layer", "desc": "Release Window — dictation active, speak" },
+    { "action": "hold_layer", "layer": 3, "key": "7:4", "desc": "Hold Window" },
+    { "action": "press", "layer": 3, "key": "9:0", "desc": "Win+C (open Copilot — L3 x9,y0)" },
+    { "action": "release_layer", "desc": "Release Window" }
+  ]
+}

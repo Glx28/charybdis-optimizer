@@ -1,0 +1,23 @@
+{
+  "id": "copilot_assist",
+  "name": "Copilot: select text, copy to chat, paste response back",
+  "frequency": "medium",
+  "weight": 0.65,
+  "steps": [
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Hold Mouse" },
+    { "action": "press", "layer": 2, "key": "1:2", "desc": "MB1 click to position" },
+    { "action": "press", "layer": 2, "key": "5:3", "desc": "Select All (Ctrl+A)" },
+    { "action": "press", "layer": 2, "key": "3:3", "desc": "Copy (Ctrl+C)" },
+    { "action": "press", "layer": 2, "key": "1:1", "desc": "Alt+Tab to Copilot" },
+    { "action": "press", "layer": 2, "key": "1:2", "desc": "MB1 click chat input" },
+    { "action": "press", "layer": 2, "key": "4:3", "desc": "Paste (Ctrl+V)" },
+    { "action": "press", "layer": 2, "key": "3:1", "desc": "Enter to send" },
+    { "action": "release_layer", "desc": "Release Mouse — wait for response" },
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Hold Mouse again" },
+    { "action": "press", "layer": 2, "key": "5:3", "desc": "Select All response" },
+    { "action": "press", "layer": 2, "key": "3:3", "desc": "Copy response" },
+    { "action": "press", "layer": 2, "key": "1:1", "desc": "Alt+Tab back to app" },
+    { "action": "press", "layer": 2, "key": "4:3", "desc": "Paste response" },
+    { "action": "release_layer", "desc": "Release Mouse" }
+  ]
+}

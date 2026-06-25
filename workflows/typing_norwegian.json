@@ -1,0 +1,22 @@
+{
+  "id": "typing_norwegian",
+  "name": "Norwegian typing: æøå, common words, punctuation",
+  "frequency": "constant",
+  "weight": 0.9,
+  "steps": [
+    { "action": "press", "layer": 0, "key": "8:2", "desc": "Type J (base)" },
+    { "action": "press", "layer": 0, "key": "3:1", "desc": "Type E (base)" },
+    { "action": "press", "layer": 0, "key": "5:2", "desc": "Type G (base)" },
+    { "action": "press", "layer": 0, "key": "4:4", "desc": "Space" },
+    { "action": "press", "layer": 0, "key": "11:2", "desc": "Type ø (SemiColon)" },
+    { "action": "press", "layer": 0, "key": "7:3", "desc": "Type N" },
+    { "action": "press", "layer": 0, "key": "2:2", "desc": "Type S" },
+    { "action": "press", "layer": 0, "key": "9:2", "desc": "Type K" },
+    { "action": "press", "layer": 0, "key": "3:1", "desc": "Type E" },
+    { "action": "press", "layer": 0, "key": "4:4", "desc": "Space" },
+    { "action": "press", "layer": 0, "key": "12:2", "desc": "Type æ (Apostrophe)" },
+    { "action": "press", "layer": 0, "key": "12:1", "desc": "Type å (LeftBrace)" },
+    { "action": "press", "layer": 0, "key": "10:3", "desc": "Type . (period)" },
+    { "action": "press", "layer": 0, "key": "7:5", "desc": "Enter" }
+  ]
+}

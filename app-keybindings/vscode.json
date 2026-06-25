@@ -1,0 +1,124 @@
+{
+  "id": "vscode",
+  "name": "Visual Studio Code",
+  "version": "1.96+",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "General",
+      "shortcuts": [
+        { "keys": "Ctrl+Shift+P", "action": "Command palette", "frequency": "constant", "modifiers": ["Ctrl", "Shift"], "base_key": "P", "context": "always" },
+        { "keys": "Ctrl+P", "action": "Quick open file", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "P", "context": "always" },
+        { "keys": "Ctrl+Shift+N", "action": "New window", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "N", "context": "always" },
+        { "keys": "Ctrl+,", "action": "Open settings", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": ",", "context": "always" },
+        { "keys": "Ctrl+K Ctrl+S", "action": "Keyboard shortcuts", "frequency": "rare", "modifiers": ["Ctrl"], "base_key": "K", "context": "always" },
+        { "keys": "Ctrl+`", "action": "Toggle terminal", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "`", "context": "always" },
+        { "keys": "Ctrl+Shift+`", "action": "New terminal", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "`", "context": "always" },
+        { "keys": "Ctrl+B", "action": "Toggle sidebar", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "B", "context": "always" },
+        { "keys": "Ctrl+J", "action": "Toggle bottom panel", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "J", "context": "always" },
+        { "keys": "Ctrl+\\", "action": "Split editor", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "\\", "context": "always" }
+      ]
+    },
+    {
+      "name": "File Operations",
+      "shortcuts": [
+        { "keys": "Ctrl+S", "action": "Save", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "S", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+S", "action": "Save as", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "S", "context": "text-editing" },
+        { "keys": "Ctrl+K S", "action": "Save all", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "K", "context": "always" },
+        { "keys": "Ctrl+N", "action": "New file", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "N", "context": "always" },
+        { "keys": "Ctrl+O", "action": "Open file", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "O", "context": "always" },
+        { "keys": "Ctrl+W", "action": "Close editor", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "W", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+K Ctrl+W", "action": "Close all editors", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "K", "context": "always" }
+      ]
+    },
+    {
+      "name": "Editing",
+      "shortcuts": [
+        { "keys": "Ctrl+C", "action": "Copy (line if no selection)", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "C", "context": "text-editing", "charybdis_layer": 2 },
+        { "keys": "Ctrl+X", "action": "Cut (line if no selection)", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "X", "context": "text-editing", "charybdis_layer": 2 },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "V", "context": "text-editing", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Z", "action": "Undo", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "Z", "context": "text-editing", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Shift+Z", "action": "Redo", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "Z", "context": "text-editing" },
+        { "keys": "Ctrl+Y", "action": "Redo (alt)", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Y", "context": "text-editing", "charybdis_layer": 2 },
+        { "keys": "Ctrl+D", "action": "Select next occurrence", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "D", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+L", "action": "Select all occurrences", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "L", "context": "text-editing" },
+        { "keys": "Alt+Up", "action": "Move line up", "frequency": "high", "modifiers": ["Alt"], "base_key": "Up", "context": "text-editing" },
+        { "keys": "Alt+Down", "action": "Move line down", "frequency": "high", "modifiers": ["Alt"], "base_key": "Down", "context": "text-editing" },
+        { "keys": "Shift+Alt+Up", "action": "Copy line up", "frequency": "medium", "modifiers": ["Shift", "Alt"], "base_key": "Up", "context": "text-editing" },
+        { "keys": "Shift+Alt+Down", "action": "Copy line down", "frequency": "high", "modifiers": ["Shift", "Alt"], "base_key": "Down", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+K", "action": "Delete line", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "K", "context": "text-editing" },
+        { "keys": "Ctrl+Enter", "action": "Insert line below", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Enter", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+Enter", "action": "Insert line above", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "Enter", "context": "text-editing" },
+        { "keys": "Ctrl+/", "action": "Toggle line comment", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "/", "context": "text-editing" },
+        { "keys": "Shift+Alt+A", "action": "Toggle block comment", "frequency": "medium", "modifiers": ["Shift", "Alt"], "base_key": "A", "context": "text-editing" },
+        { "keys": "Ctrl+]", "action": "Indent line", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "]", "context": "text-editing" },
+        { "keys": "Ctrl+[", "action": "Outdent line", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "[", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+\\", "action": "Jump to matching bracket", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "\\", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+F", "action": "Format document", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "F", "context": "text-editing" },
+        { "keys": "Ctrl+K Ctrl+F", "action": "Format selection", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "K", "context": "text-editing" },
+        { "keys": "Tab", "action": "Indent / accept suggestion", "frequency": "constant", "modifiers": [], "base_key": "Tab", "context": "text-editing" },
+        { "keys": "Shift+Tab", "action": "Outdent", "frequency": "high", "modifiers": ["Shift"], "base_key": "Tab", "context": "text-editing" }
+      ]
+    },
+    {
+      "name": "Navigation",
+      "shortcuts": [
+        { "keys": "Ctrl+G", "action": "Go to line", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "G", "context": "text-editing" },
+        { "keys": "F12", "action": "Go to definition", "frequency": "constant", "modifiers": [], "base_key": "F12", "context": "text-editing", "charybdis_layer": 1 },
+        { "keys": "Alt+F12", "action": "Peek definition", "frequency": "high", "modifiers": ["Alt"], "base_key": "F12", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+O", "action": "Go to symbol in file", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "O", "context": "text-editing" },
+        { "keys": "Ctrl+T", "action": "Go to symbol in workspace", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "T", "context": "text-editing" },
+        { "keys": "Ctrl+Tab", "action": "Switch editor tab", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "Tab", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Alt+Left", "action": "Navigate back", "frequency": "constant", "modifiers": ["Alt"], "base_key": "Left", "context": "text-editing", "charybdis_layer": 2 },
+        { "keys": "Alt+Right", "action": "Navigate forward", "frequency": "high", "modifiers": ["Alt"], "base_key": "Right", "context": "text-editing", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Shift+M", "action": "Toggle problems panel", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "M", "context": "always" },
+        { "keys": "F8", "action": "Go to next problem", "frequency": "medium", "modifiers": [], "base_key": "F8", "context": "text-editing", "charybdis_layer": 1 },
+        { "keys": "Shift+F8", "action": "Go to previous problem", "frequency": "low", "modifiers": ["Shift"], "base_key": "F8", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+E", "action": "Explorer panel", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "E", "context": "always" },
+        { "keys": "Ctrl+Shift+F", "action": "Search across files", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "F", "context": "always" },
+        { "keys": "Ctrl+Shift+G", "action": "Source control panel", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "G", "context": "always" },
+        { "keys": "Ctrl+Shift+X", "action": "Extensions panel", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "X", "context": "always" }
+      ]
+    },
+    {
+      "name": "Multi-cursor",
+      "shortcuts": [
+        { "keys": "Alt+Click", "action": "Add cursor at position", "frequency": "high", "modifiers": ["Alt"], "base_key": "Click", "context": "text-editing" },
+        { "keys": "Ctrl+Alt+Up", "action": "Add cursor above", "frequency": "high", "modifiers": ["Ctrl", "Alt"], "base_key": "Up", "context": "text-editing" },
+        { "keys": "Ctrl+Alt+Down", "action": "Add cursor below", "frequency": "high", "modifiers": ["Ctrl", "Alt"], "base_key": "Down", "context": "text-editing" },
+        { "keys": "Ctrl+U", "action": "Undo last cursor", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "U", "context": "text-editing" }
+      ]
+    },
+    {
+      "name": "Search & Replace",
+      "shortcuts": [
+        { "keys": "Ctrl+F", "action": "Find", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "F", "context": "text-editing", "charybdis_layer": 1 },
+        { "keys": "Ctrl+H", "action": "Find and replace", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "H", "context": "text-editing", "charybdis_layer": 1 },
+        { "keys": "F3", "action": "Find next", "frequency": "high", "modifiers": [], "base_key": "F3", "context": "text-editing", "charybdis_layer": 1 },
+        { "keys": "Shift+F3", "action": "Find previous", "frequency": "medium", "modifiers": ["Shift"], "base_key": "F3", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+H", "action": "Replace in files", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "H", "context": "always" }
+      ]
+    },
+    {
+      "name": "Debug",
+      "shortcuts": [
+        { "keys": "F5", "action": "Start/continue debugging", "frequency": "high", "modifiers": [], "base_key": "F5", "context": "always", "charybdis_layer": 1 },
+        { "keys": "Shift+F5", "action": "Stop debugging", "frequency": "medium", "modifiers": ["Shift"], "base_key": "F5", "context": "always" },
+        { "keys": "F9", "action": "Toggle breakpoint", "frequency": "high", "modifiers": [], "base_key": "F9", "context": "text-editing", "charybdis_layer": 1 },
+        { "keys": "F10", "action": "Step over", "frequency": "high", "modifiers": [], "base_key": "F10", "context": "always", "charybdis_layer": 1 },
+        { "keys": "F11", "action": "Step into", "frequency": "high", "modifiers": [], "base_key": "F11", "context": "always", "charybdis_layer": 1 },
+        { "keys": "Shift+F11", "action": "Step out", "frequency": "high", "modifiers": ["Shift"], "base_key": "F11", "context": "always" },
+        { "keys": "Ctrl+Shift+F5", "action": "Restart debugging", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "F5", "context": "always" }
+      ]
+    },
+    {
+      "name": "Selection",
+      "shortcuts": [
+        { "keys": "Ctrl+A", "action": "Select all", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "A", "context": "text-editing", "charybdis_layer": 2 },
+        { "keys": "Ctrl+L", "action": "Select current line", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "L", "context": "text-editing" },
+        { "keys": "Shift+Alt+Right", "action": "Expand selection", "frequency": "medium", "modifiers": ["Shift", "Alt"], "base_key": "Right", "context": "text-editing" },
+        { "keys": "Shift+Alt+Left", "action": "Shrink selection", "frequency": "medium", "modifiers": ["Shift", "Alt"], "base_key": "Left", "context": "text-editing" }
+      ]
+    }
+  ]
+}

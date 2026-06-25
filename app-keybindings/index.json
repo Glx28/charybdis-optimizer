@@ -1,0 +1,31 @@
+{
+  "description": "App keybinding corpus for keymap optimization. Weights derived from actual user screen-time data (2026-06-24).",
+  "frequency_weights": {
+    "constant": 10,
+    "high": 6,
+    "medium": 3,
+    "low": 1,
+    "rare": 0.2
+  },
+  "apps": [
+    { "id": "teams", "file": "teams.json", "user_weight": 1.0, "notes": "Teams 57% taskbar — #1 most used app" },
+    { "id": "browser", "file": "browser.json", "user_weight": 0.95, "notes": "Edge 44% active screen time — primary browser" },
+    { "id": "vscode", "file": "vscode.json", "user_weight": 0.9, "notes": "VS Code 33% active — primary code editor" },
+    { "id": "mfiles", "file": "mfiles.json", "user_weight": 0.85, "notes": "M-Files 20% — critical work DMS (Desktop + Admin)" },
+    { "id": "windows", "file": "windows.json", "user_weight": 1.0, "notes": "OS-level — always active, window management across 3 monitors" },
+    { "id": "outlook", "file": "outlook.json", "user_weight": 0.7, "notes": "Outlook 14% taskbar — daily email" },
+    { "id": "excel", "file": "excel.json", "user_weight": 0.5, "notes": "Excel 6% taskbar — regular spreadsheet work" },
+    { "id": "explorer", "file": "explorer.json", "user_weight": 0.45, "notes": "Explorer 5% taskbar, <1% active — file management" },
+    { "id": "terminal", "file": "terminal.json", "user_weight": 0.4, "notes": "Terminal 3% active — development CLI" },
+    { "id": "word", "file": "word.json", "user_weight": 0.3, "notes": "Word — occasional document writing" },
+    { "id": "powerpoint", "file": "powerpoint.json", "user_weight": 0.2, "notes": "PowerPoint — occasional presentations" },
+    { "id": "discord", "file": "discord.json", "user_weight": 0.2, "notes": "Discord — background, occasional voice/chat" },
+    { "id": "mfiles_admin", "file": "mfiles_admin.json", "user_weight": 0.85, "notes": "M-Files Admin 20% — critical work admin tool" }
+  ],
+  "removed": [
+    { "id": "notepadpp", "reason": "User does not use Notepad++" },
+    { "id": "slack", "reason": "User does not use Slack" },
+    { "id": "figma", "reason": "User does not use Figma" },
+    { "id": "onenote", "reason": "User does not use OneNote" }
+  ]
+}

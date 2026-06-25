@@ -1,0 +1,142 @@
+{
+  "id": "browser",
+  "name": "Browser (Chrome/Edge)",
+  "version": "Chrome 130+ / Edge 130+",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Tab Management",
+      "shortcuts": [
+        { "keys": "Ctrl+T", "action": "New tab", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "T", "context": "always" },
+        { "keys": "Ctrl+W", "action": "Close tab", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "W", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Tab", "action": "Next tab", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "Tab", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Shift+Tab", "action": "Previous tab", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "Tab", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Shift+T", "action": "Reopen closed tab", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "T", "context": "always" },
+        { "keys": "Ctrl+1", "action": "Switch to tab 1", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "1", "context": "always" },
+        { "keys": "Ctrl+2", "action": "Switch to tab 2", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "2", "context": "always" },
+        { "keys": "Ctrl+3", "action": "Switch to tab 3", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "3", "context": "always" },
+        { "keys": "Ctrl+4", "action": "Switch to tab 4", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "4", "context": "always" },
+        { "keys": "Ctrl+5", "action": "Switch to tab 5", "frequency": "rare", "modifiers": ["Ctrl"], "base_key": "5", "context": "always" },
+        { "keys": "Ctrl+6", "action": "Switch to tab 6", "frequency": "rare", "modifiers": ["Ctrl"], "base_key": "6", "context": "always" },
+        { "keys": "Ctrl+7", "action": "Switch to tab 7", "frequency": "rare", "modifiers": ["Ctrl"], "base_key": "7", "context": "always" },
+        { "keys": "Ctrl+8", "action": "Switch to tab 8", "frequency": "rare", "modifiers": ["Ctrl"], "base_key": "8", "context": "always" },
+        { "keys": "Ctrl+9", "action": "Last tab", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "9", "context": "always" },
+        { "keys": "Ctrl+N", "action": "New window", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "N", "context": "always" },
+        { "keys": "Ctrl+Shift+N", "action": "Incognito/InPrivate window", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "N", "context": "always" }
+      ]
+    },
+    {
+      "name": "Navigation",
+      "shortcuts": [
+        { "keys": "Alt+Left", "action": "Back", "frequency": "constant", "modifiers": ["Alt"], "base_key": "Left", "context": "mouse-browsing", "charybdis_layer": 2, "notes": "MB4 on L2 sends same" },
+        { "keys": "Alt+Right", "action": "Forward", "frequency": "high", "modifiers": ["Alt"], "base_key": "Right", "context": "mouse-browsing", "charybdis_layer": 2, "notes": "MB5 on L2 sends same" },
+        { "keys": "F5", "action": "Refresh page", "frequency": "high", "modifiers": [], "base_key": "F5", "context": "always", "charybdis_layer": 1 },
+        { "keys": "Ctrl+F5", "action": "Hard refresh (bypass cache)", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "F5", "context": "always" },
+        { "keys": "Ctrl+L", "action": "Focus address bar", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "L", "context": "always" },
+        { "keys": "Alt+D", "action": "Focus address bar (alt)", "frequency": "medium", "modifiers": ["Alt"], "base_key": "D", "context": "always" },
+        { "keys": "Ctrl+Enter", "action": "Add www./. com to URL", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "Enter", "context": "always" },
+        { "keys": "Alt+Home", "action": "Open home page", "frequency": "low", "modifiers": ["Alt"], "base_key": "Home", "context": "always" },
+        { "keys": "Escape", "action": "Stop loading / close suggestion", "frequency": "high", "modifiers": [], "base_key": "Escape", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Space", "action": "Scroll down one screen", "frequency": "high", "modifiers": [], "base_key": "Space", "context": "mouse-browsing" },
+        { "keys": "Shift+Space", "action": "Scroll up one screen", "frequency": "medium", "modifiers": ["Shift"], "base_key": "Space", "context": "mouse-browsing" }
+      ]
+    },
+    {
+      "name": "Find & Page",
+      "shortcuts": [
+        { "keys": "Ctrl+F", "action": "Find on page", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "F", "context": "text-editing", "charybdis_layer": 1 },
+        { "keys": "Ctrl+G", "action": "Find next", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "G", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+G", "action": "Find previous", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "G", "context": "text-editing" },
+        { "keys": "F3", "action": "Find next (alt)", "frequency": "medium", "modifiers": [], "base_key": "F3", "context": "text-editing", "charybdis_layer": 1 },
+        { "keys": "Ctrl+H", "action": "History", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "H", "context": "always", "charybdis_layer": 1 },
+        { "keys": "Ctrl+J", "action": "Downloads", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "J", "context": "always" },
+        { "keys": "Ctrl+D", "action": "Bookmark page", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "D", "context": "always" },
+        { "keys": "Ctrl+Shift+B", "action": "Toggle bookmarks bar", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "B", "context": "always" },
+        { "keys": "Ctrl+Shift+O", "action": "Bookmark manager", "frequency": "rare", "modifiers": ["Ctrl", "Shift"], "base_key": "O", "context": "always" },
+        { "keys": "Ctrl+P", "action": "Print", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "P", "context": "always" },
+        { "keys": "Ctrl+S", "action": "Save page as", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "S", "context": "always" },
+        { "keys": "Ctrl+U", "action": "View page source", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "U", "context": "always" }
+      ]
+    },
+    {
+      "name": "Zoom & View",
+      "shortcuts": [
+        { "keys": "Ctrl++", "action": "Zoom in", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "+", "context": "always" },
+        { "keys": "Ctrl+-", "action": "Zoom out", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "-", "context": "always" },
+        { "keys": "Ctrl+0", "action": "Reset zoom", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "0", "context": "always" },
+        { "keys": "F11", "action": "Toggle fullscreen", "frequency": "low", "modifiers": [], "base_key": "F11", "context": "always", "charybdis_layer": 1 }
+      ]
+    },
+    {
+      "name": "Developer Tools",
+      "shortcuts": [
+        { "keys": "F12", "action": "Open DevTools", "frequency": "high", "modifiers": [], "base_key": "F12", "context": "always", "charybdis_layer": 1 },
+        { "keys": "Ctrl+Shift+I", "action": "Open DevTools (alt)", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "I", "context": "always" },
+        { "keys": "Ctrl+Shift+J", "action": "Open Console", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "J", "context": "always" },
+        { "keys": "Ctrl+Shift+C", "action": "Inspect element", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "C", "context": "always" },
+        { "keys": "Ctrl+Shift+M", "action": "Toggle device toolbar", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "M", "context": "always" }
+      ]
+    },
+    {
+      "name": "Clipboard & Edit",
+      "shortcuts": [
+        { "keys": "Ctrl+C", "action": "Copy", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "C", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "V", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Ctrl+X", "action": "Cut", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "X", "context": "text-editing", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Z", "action": "Undo", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Z", "context": "text-editing", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Shift+V", "action": "Paste without formatting", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "V", "context": "text-editing" },
+        { "keys": "Ctrl+A", "action": "Select all", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "A", "context": "text-editing", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Y", "action": "Redo", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "Y", "context": "text-editing", "charybdis_layer": 2 }
+      ]
+    },
+    {
+      "name": "Edge Specific",
+      "shortcuts": [
+        { "keys": "Ctrl+Shift+B", "action": "Toggle favorites bar", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "B", "context": "always" },
+        { "keys": "Ctrl+Shift+O", "action": "Favorites manager", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "O", "context": "always" },
+        { "keys": "Ctrl+Shift+E", "action": "Toggle sidebar", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "E", "context": "always" },
+        { "keys": "Ctrl+Shift+Del", "action": "Clear browsing data", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "Delete", "context": "always" },
+        { "keys": "Ctrl+Shift+P", "action": "InPrivate window", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "P", "context": "always" },
+        { "keys": "Alt+F", "action": "Settings menu", "frequency": "medium", "modifiers": ["Alt"], "base_key": "F", "context": "always" },
+        { "keys": "F1", "action": "Help", "frequency": "rare", "modifiers": [], "base_key": "F1", "context": "always" },
+        { "keys": "Ctrl+Shift+R", "action": "Read aloud", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "R", "context": "always" },
+        { "keys": "Ctrl+Shift+U", "action": "View source", "frequency": "rare", "modifiers": ["Ctrl", "Shift"], "base_key": "U", "context": "always" }
+      ]
+    },
+    {
+      "name": "Vimium Extension",
+      "shortcuts": [
+        { "keys": "j", "action": "Scroll down", "frequency": "constant", "modifiers": [], "base_key": "J", "context": "browsing", "notes": "Vimium — only active when not in input field" },
+        { "keys": "k", "action": "Scroll up", "frequency": "constant", "modifiers": [], "base_key": "K", "context": "browsing", "notes": "Vimium" },
+        { "keys": "f", "action": "Open link in current tab", "frequency": "constant", "modifiers": [], "base_key": "F", "context": "browsing", "notes": "Vimium — shows hint labels on all links" },
+        { "keys": "F", "action": "Open link in new tab", "frequency": "high", "modifiers": ["Shift"], "base_key": "F", "context": "browsing", "notes": "Vimium" },
+        { "keys": "d", "action": "Scroll half page down", "frequency": "high", "modifiers": [], "base_key": "D", "context": "browsing", "notes": "Vimium" },
+        { "keys": "u", "action": "Scroll half page up", "frequency": "high", "modifiers": [], "base_key": "U", "context": "browsing", "notes": "Vimium" },
+        { "keys": "H", "action": "Go back in history", "frequency": "high", "modifiers": ["Shift"], "base_key": "H", "context": "browsing", "notes": "Vimium" },
+        { "keys": "L", "action": "Go forward in history", "frequency": "medium", "modifiers": ["Shift"], "base_key": "L", "context": "browsing", "notes": "Vimium" },
+        { "keys": "o", "action": "Open URL/bookmark/history", "frequency": "high", "modifiers": [], "base_key": "O", "context": "browsing", "notes": "Vimium omnibar" },
+        { "keys": "t", "action": "Search open tabs", "frequency": "medium", "modifiers": [], "base_key": "T", "context": "browsing", "notes": "Vimium" },
+        { "keys": "x", "action": "Close current tab", "frequency": "high", "modifiers": [], "base_key": "X", "context": "browsing", "notes": "Vimium" },
+        { "keys": "X", "action": "Restore closed tab", "frequency": "medium", "modifiers": ["Shift"], "base_key": "X", "context": "browsing", "notes": "Vimium" },
+        { "keys": "r", "action": "Reload page", "frequency": "medium", "modifiers": [], "base_key": "R", "context": "browsing", "notes": "Vimium" },
+        { "keys": "gg", "action": "Scroll to top", "frequency": "medium", "modifiers": [], "base_key": "G", "context": "browsing", "notes": "Vimium — double tap g" },
+        { "keys": "G", "action": "Scroll to bottom", "frequency": "medium", "modifiers": ["Shift"], "base_key": "G", "context": "browsing", "notes": "Vimium" },
+        { "keys": "gi", "action": "Focus first input field", "frequency": "medium", "modifiers": [], "base_key": "I", "context": "browsing", "notes": "Vimium — press g then i" },
+        { "keys": "yy", "action": "Copy current URL", "frequency": "medium", "modifiers": [], "base_key": "Y", "context": "browsing", "notes": "Vimium — double tap y" },
+        { "keys": "J", "action": "Previous tab", "frequency": "high", "modifiers": ["Shift"], "base_key": "J", "context": "browsing", "notes": "Vimium — capital J" },
+        { "keys": "K", "action": "Next tab", "frequency": "high", "modifiers": ["Shift"], "base_key": "K", "context": "browsing", "notes": "Vimium — capital K" },
+        { "keys": "/", "action": "Enter find mode", "frequency": "high", "modifiers": [], "base_key": "/", "context": "browsing", "notes": "Vimium — vim-style search" },
+        { "keys": "n", "action": "Find next match", "frequency": "medium", "modifiers": [], "base_key": "N", "context": "browsing", "notes": "Vimium" },
+        { "keys": "N", "action": "Find previous match", "frequency": "medium", "modifiers": ["Shift"], "base_key": "N", "context": "browsing", "notes": "Vimium" },
+        { "keys": "?", "action": "Show Vimium help", "frequency": "low", "modifiers": ["Shift"], "base_key": "/", "context": "browsing", "notes": "Vimium" }
+      ]
+    },
+    {
+      "name": "Proton Pass Extension",
+      "shortcuts": [
+        { "keys": "Ctrl+Shift+L", "action": "Autofill login", "frequency": "constant", "modifiers": ["Ctrl", "Shift"], "base_key": "L", "context": "login-form", "notes": "Proton Pass — fills username + password on login pages" },
+        { "keys": "Ctrl+Shift+S", "action": "Open Proton Pass popup", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "S", "context": "always", "notes": "Proton Pass — search and manage passwords" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "pop_size": 3000,
+  "generations": 500,
+  "checkpoint_interval": 25,
+  "mutation_rate": 0.30,
+  "crossover_rate": 0.7,
+  "tournament_size": 3,
+  "frozen_layers": [
+    0,
+    6,
+    7,
+    8
+  ],
+  "pareto_front_size": 20,
+  "seed": null,
+  "use_gpu": true,
+  "qd_grid_dims": [
+    10,
+    10
+  ],
+  "qd_behavior_dims": [
+    "app_balance",
+    "thumb_utilization"
+  ],
+  "weights": {
+    "effort": 1.0,
+    "adjacency": 1.5,
+    "violations": 10.0,
+    "finger_balance": 0.8,
+    "same_finger_penalty": 2.0,
+    "thumb_utilization": 3.0,
+    "cross_layer_consistency": 2.0,
+    "trackball_proximity": 1.5,
+    "app_transition": 1.0,
+    "learning_curve": 0.5,
+    "zmk_compatibility": 20.0,
+    "unassignment": 30.0,
+    "group_placement": 2.0,
+    "missing_important": 25.0,
+    "duplicate": 3.0,
+    "group_split": 20.0
+  }
+}

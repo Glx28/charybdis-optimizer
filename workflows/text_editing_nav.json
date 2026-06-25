@@ -1,0 +1,15 @@
+{
+  "id": "text_editing_nav",
+  "name": "Text editing: arrows, PgUp, Home, Ctrl+F",
+  "frequency": "high",
+  "weight": 0.95,
+  "steps": [
+    { "action": "hold_layer", "layer": 1, "key": "3:4", "desc": "Hold Nav (L thumb)" },
+    { "action": "press", "layer": 1, "key": "7:2", "desc": "Arrow left" },
+    { "action": "press", "layer": 1, "key": "8:2", "desc": "Arrow down" },
+    { "action": "press", "layer": 1, "key": "9:1", "desc": "PageUp" },
+    { "action": "press", "layer": 1, "key": "8:1", "desc": "Home" },
+    { "action": "press", "layer": 1, "key": "5:1", "desc": "Ctrl+F find" },
+    { "action": "release_layer", "desc": "Release Nav" }
+  ]
+}

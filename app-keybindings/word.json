@@ -1,0 +1,52 @@
+{
+  "id": "word",
+  "name": "Microsoft Word",
+  "version": "Word 365+",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Formatting",
+      "shortcuts": [
+        { "keys": "Ctrl+B", "action": "Bold", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "B", "context": "text-editing" },
+        { "keys": "Ctrl+I", "action": "Italic", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "I", "context": "text-editing" },
+        { "keys": "Ctrl+U", "action": "Underline", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "U", "context": "text-editing" },
+        { "keys": "Ctrl+E", "action": "Center align", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "E", "context": "text-editing" },
+        { "keys": "Ctrl+L", "action": "Left align", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "L", "context": "text-editing" },
+        { "keys": "Ctrl+R", "action": "Right align", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "R", "context": "text-editing" },
+        { "keys": "Ctrl+J", "action": "Justify", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "J", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+>", "action": "Increase font size", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": ">", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+<", "action": "Decrease font size", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "<", "context": "text-editing" },
+        { "keys": "Ctrl+1", "action": "Single spacing", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "1", "context": "text-editing" },
+        { "keys": "Ctrl+2", "action": "Double spacing", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "2", "context": "text-editing" }
+      ]
+    },
+    {
+      "name": "Editing",
+      "shortcuts": [
+        { "keys": "Ctrl+C", "action": "Copy", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "C", "context": "always" },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "V", "context": "always" },
+        { "keys": "Ctrl+X", "action": "Cut", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "X", "context": "text-editing" },
+        { "keys": "Ctrl+Z", "action": "Undo", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "Z", "context": "always" },
+        { "keys": "Ctrl+Y", "action": "Redo", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Y", "context": "always" },
+        { "keys": "Ctrl+S", "action": "Save", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "S", "context": "always" },
+        { "keys": "Ctrl+A", "action": "Select all", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "A", "context": "always" },
+        { "keys": "Ctrl+F", "action": "Find", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "F", "context": "always" },
+        { "keys": "Ctrl+H", "action": "Find and replace", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "H", "context": "always" },
+        { "keys": "Ctrl+K", "action": "Insert hyperlink", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "K", "context": "text-editing" },
+        { "keys": "Ctrl+Enter", "action": "Page break", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "Enter", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+V", "action": "Paste special", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "V", "context": "text-editing" }
+      ]
+    },
+    {
+      "name": "Navigation",
+      "shortcuts": [
+        { "keys": "Ctrl+Home", "action": "Go to beginning", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "Home", "context": "always" },
+        { "keys": "Ctrl+End", "action": "Go to end", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "End", "context": "always" },
+        { "keys": "Ctrl+G", "action": "Go to page", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "G", "context": "always" },
+        { "keys": "Ctrl+P", "action": "Print", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "P", "context": "always" },
+        { "keys": "F7", "action": "Spell check", "frequency": "medium", "modifiers": [], "base_key": "F7", "context": "always" },
+        { "keys": "Ctrl+Shift+N", "action": "Normal style", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "N", "context": "text-editing" }
+      ]
+    }
+  ]
+}

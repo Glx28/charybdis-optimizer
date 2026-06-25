@@ -1,0 +1,72 @@
+{
+  "id": "teams",
+  "name": "Microsoft Teams",
+  "version": "Teams 2.0+ (new client)",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Navigation",
+      "shortcuts": [
+        { "keys": "Ctrl+1", "action": "Activity", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "1", "context": "always" },
+        { "keys": "Ctrl+2", "action": "Chat", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "2", "context": "always" },
+        { "keys": "Ctrl+3", "action": "Teams/channels", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "3", "context": "always" },
+        { "keys": "Ctrl+4", "action": "Calendar", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "4", "context": "always" },
+        { "keys": "Ctrl+5", "action": "Calls", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "5", "context": "always" },
+        { "keys": "Ctrl+6", "action": "Files", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "6", "context": "always" },
+        { "keys": "Ctrl+E", "action": "Search / command bar", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "E", "context": "always" },
+        { "keys": "Ctrl+/", "action": "Show keyboard shortcuts", "frequency": "rare", "modifiers": ["Ctrl"], "base_key": "/", "context": "always" },
+        { "keys": "Ctrl+.", "action": "Show commands", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": ".", "context": "always" },
+        { "keys": "Ctrl+Shift+F6", "action": "Next section", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "F6", "context": "always" },
+        { "keys": "Ctrl+F6", "action": "Previous section", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "F6", "context": "always" },
+        { "keys": "Alt+Left", "action": "Go back", "frequency": "high", "modifiers": ["Alt"], "base_key": "Left", "context": "always" },
+        { "keys": "Alt+Right", "action": "Go forward", "frequency": "medium", "modifiers": ["Alt"], "base_key": "Right", "context": "always" }
+      ]
+    },
+    {
+      "name": "Messaging",
+      "shortcuts": [
+        { "keys": "Ctrl+N", "action": "New chat", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "N", "context": "always" },
+        { "keys": "Ctrl+Shift+X", "action": "Expand compose box", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "X", "context": "text-editing" },
+        { "keys": "Ctrl+Enter", "action": "Send (expanded mode)", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "Enter", "context": "text-editing" },
+        { "keys": "Enter", "action": "Send message", "frequency": "constant", "modifiers": [], "base_key": "Enter", "context": "text-editing" },
+        { "keys": "Shift+Enter", "action": "New line in message", "frequency": "high", "modifiers": ["Shift"], "base_key": "Enter", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+F", "action": "Format text", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "F", "context": "text-editing" },
+        { "keys": "Ctrl+B", "action": "Bold", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "B", "context": "text-editing" },
+        { "keys": "Ctrl+I", "action": "Italic", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "I", "context": "text-editing" },
+        { "keys": "Ctrl+U", "action": "Underline", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "U", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+U", "action": "Mark as unread", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "U", "context": "always" },
+        { "keys": "Ctrl+Shift+S", "action": "Attach file", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "S", "context": "always" },
+        { "keys": "Ctrl+K", "action": "Insert link", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "K", "context": "text-editing" },
+        { "keys": "Up", "action": "Edit last sent message", "frequency": "high", "modifiers": [], "base_key": "Up", "context": "always" },
+        { "keys": "Ctrl+C", "action": "Copy", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "C", "context": "always" },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "V", "context": "always" },
+        { "keys": "Ctrl+Z", "action": "Undo", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Z", "context": "text-editing" },
+        { "keys": "Ctrl+A", "action": "Select all", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "A", "context": "text-editing" }
+      ]
+    },
+    {
+      "name": "Meetings & Calls",
+      "shortcuts": [
+        { "keys": "Ctrl+Shift+M", "action": "Toggle mute", "frequency": "constant", "modifiers": ["Ctrl", "Shift"], "base_key": "M", "context": "always" },
+        { "keys": "Ctrl+Shift+O", "action": "Toggle camera", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "O", "context": "always" },
+        { "keys": "Ctrl+Shift+E", "action": "Toggle screen share", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "E", "context": "always" },
+        { "keys": "Ctrl+Shift+K", "action": "Raise/lower hand", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "K", "context": "always" },
+        { "keys": "Ctrl+Shift+B", "action": "Toggle background blur", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "B", "context": "always" },
+        { "keys": "Ctrl+Shift+H", "action": "Hang up / end call", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "H", "context": "always" },
+        { "keys": "Ctrl+Shift+A", "action": "Accept call", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "A", "context": "always" },
+        { "keys": "Ctrl+Shift+D", "action": "Decline call", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "D", "context": "always" },
+        { "keys": "Ctrl+Shift+P", "action": "Toggle chat in meeting", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "P", "context": "always" },
+        { "keys": "Ctrl+Shift+R", "action": "Start recording", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "R", "context": "always" }
+      ]
+    },
+    {
+      "name": "General",
+      "shortcuts": [
+        { "keys": "Escape", "action": "Close / go back", "frequency": "high", "modifiers": [], "base_key": "Escape", "context": "always" },
+        { "keys": "Ctrl+F", "action": "Find in conversation", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "F", "context": "always" },
+        { "keys": "Ctrl+Shift+L", "action": "Toggle sidebar", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "L", "context": "always" },
+        { "keys": "Ctrl+G", "action": "Go to...", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "G", "context": "always" }
+      ]
+    }
+  ]
+}

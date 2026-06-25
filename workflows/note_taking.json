@@ -1,0 +1,18 @@
+{
+  "id": "note_taking",
+  "name": "OneNote: navigate, type notes, format, search",
+  "frequency": "medium",
+  "weight": 0.6,
+  "steps": [
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Hold Mouse" },
+    { "action": "press", "layer": 2, "key": "1:2", "desc": "MB1 click page" },
+    { "action": "release_layer", "desc": "Release Mouse" },
+    { "action": "hold_layer", "layer": 1, "key": "3:4", "desc": "Hold Nav" },
+    { "action": "press", "layer": 1, "key": "5:1", "desc": "Ctrl+F search" },
+    { "action": "release_layer", "desc": "Release Nav" },
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Hold Mouse" },
+    { "action": "press", "layer": 2, "key": "5:3", "desc": "Select All (Ctrl+A)" },
+    { "action": "press", "layer": 2, "key": "3:3", "desc": "Copy" },
+    { "action": "release_layer", "desc": "Release Mouse" }
+  ]
+}

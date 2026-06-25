@@ -1,0 +1,50 @@
+{
+  "id": "powerpoint",
+  "name": "Microsoft PowerPoint",
+  "version": "PowerPoint 365+",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Slideshow",
+      "shortcuts": [
+        { "keys": "F5", "action": "Start from beginning", "frequency": "high", "modifiers": [], "base_key": "F5", "context": "always" },
+        { "keys": "Shift+F5", "action": "Start from current slide", "frequency": "high", "modifiers": ["Shift"], "base_key": "F5", "context": "always" },
+        { "keys": "Escape", "action": "End slideshow", "frequency": "high", "modifiers": [], "base_key": "Escape", "context": "always" },
+        { "keys": "N", "action": "Next slide (in show)", "frequency": "constant", "modifiers": [], "base_key": "N", "context": "always" },
+        { "keys": "P", "action": "Previous slide (in show)", "frequency": "high", "modifiers": [], "base_key": "P", "context": "always" },
+        { "keys": "B", "action": "Black screen", "frequency": "medium", "modifiers": [], "base_key": "B", "context": "always" },
+        { "keys": "W", "action": "White screen", "frequency": "low", "modifiers": [], "base_key": "W", "context": "always" }
+      ]
+    },
+    {
+      "name": "Editing",
+      "shortcuts": [
+        { "keys": "Ctrl+M", "action": "New slide", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "M", "context": "always" },
+        { "keys": "Ctrl+D", "action": "Duplicate slide", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "D", "context": "always" },
+        { "keys": "Ctrl+S", "action": "Save", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "S", "context": "always" },
+        { "keys": "Ctrl+Z", "action": "Undo", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "Z", "context": "always" },
+        { "keys": "Ctrl+Y", "action": "Redo", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Y", "context": "always" },
+        { "keys": "Ctrl+C", "action": "Copy", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "C", "context": "always" },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "V", "context": "always" },
+        { "keys": "Ctrl+G", "action": "Group objects", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "G", "context": "always" },
+        { "keys": "Ctrl+Shift+G", "action": "Ungroup objects", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "G", "context": "always" },
+        { "keys": "Ctrl+A", "action": "Select all", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "A", "context": "always" },
+        { "keys": "Ctrl+B", "action": "Bold", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "B", "context": "text-editing" },
+        { "keys": "Ctrl+I", "action": "Italic", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "I", "context": "text-editing" },
+        { "keys": "Delete", "action": "Delete selected", "frequency": "high", "modifiers": [], "base_key": "Delete", "context": "always" },
+        { "keys": "Tab", "action": "Next placeholder / indent", "frequency": "high", "modifiers": [], "base_key": "Tab", "context": "always" }
+      ]
+    },
+    {
+      "name": "Navigation",
+      "shortcuts": [
+        { "keys": "Page Down", "action": "Next slide", "frequency": "high", "modifiers": [], "base_key": "PageDown", "context": "always" },
+        { "keys": "Page Up", "action": "Previous slide", "frequency": "high", "modifiers": [], "base_key": "PageUp", "context": "always" },
+        { "keys": "Ctrl+Home", "action": "First slide", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "Home", "context": "always" },
+        { "keys": "Ctrl+End", "action": "Last slide", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "End", "context": "always" },
+        { "keys": "Ctrl+F", "action": "Find", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "F", "context": "always" },
+        { "keys": "Ctrl+H", "action": "Replace", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "H", "context": "always" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "id": "mfiles_admin",
+  "name": "M-Files Admin",
+  "version": "M-Files Admin 24.x",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Navigation",
+      "shortcuts": [
+        { "keys": "Ctrl+F", "action": "Search/filter", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "F", "context": "always" },
+        { "keys": "F5", "action": "Refresh", "frequency": "high", "modifiers": [], "base_key": "F5", "context": "always" },
+        { "keys": "Enter", "action": "Open/expand selected", "frequency": "constant", "modifiers": [], "base_key": "Enter", "context": "always" },
+        { "keys": "Escape", "action": "Close dialog / cancel", "frequency": "high", "modifiers": [], "base_key": "Escape", "context": "always" },
+        { "keys": "Alt+Left", "action": "Navigate back", "frequency": "medium", "modifiers": ["Alt"], "base_key": "Left", "context": "always" },
+        { "keys": "Tab", "action": "Next field", "frequency": "constant", "modifiers": [], "base_key": "Tab", "context": "always" },
+        { "keys": "Shift+Tab", "action": "Previous field", "frequency": "high", "modifiers": ["Shift"], "base_key": "Tab", "context": "always" }
+      ]
+    },
+    {
+      "name": "Admin Operations",
+      "shortcuts": [
+        { "keys": "Ctrl+S", "action": "Save configuration", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "S", "context": "always" },
+        { "keys": "Ctrl+Z", "action": "Undo change", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Z", "context": "always" },
+        { "keys": "Ctrl+N", "action": "New item/object", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "N", "context": "always" },
+        { "keys": "Delete", "action": "Delete selected", "frequency": "medium", "modifiers": [], "base_key": "Delete", "context": "always" },
+        { "keys": "F2", "action": "Rename", "frequency": "high", "modifiers": [], "base_key": "F2", "context": "always" },
+        { "keys": "Ctrl+C", "action": "Copy", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "C", "context": "always" },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "V", "context": "always" },
+        { "keys": "Ctrl+A", "action": "Select all", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "A", "context": "always" },
+        { "keys": "Alt+Enter", "action": "Properties", "frequency": "high", "modifiers": ["Alt"], "base_key": "Enter", "context": "always" },
+        { "keys": "Ctrl+P", "action": "Print", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "P", "context": "always" }
+      ]
+    }
+  ]
+}

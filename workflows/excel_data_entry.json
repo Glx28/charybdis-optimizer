@@ -1,0 +1,20 @@
+{
+  "id": "excel_data_entry",
+  "name": "Excel: navigate, enter data, format, AutoSum",
+  "frequency": "high",
+  "weight": 0.75,
+  "steps": [
+    { "action": "hold_layer", "layer": 1, "key": "3:4", "desc": "Hold Nav (L thumb)" },
+    { "action": "press", "layer": 1, "key": "7:2", "desc": "Arrow left" },
+    { "action": "press", "layer": 1, "key": "8:2", "desc": "Arrow down" },
+    { "action": "press", "layer": 1, "key": "8:2", "desc": "Arrow down" },
+    { "action": "release_layer", "desc": "Release Nav" },
+    { "action": "press", "layer": 0, "key": "7:5", "desc": "Enter (confirm cell)" },
+    { "action": "hold_layer", "layer": 2, "key": "5:5", "desc": "Hold Mouse (L thumb)" },
+    { "action": "press", "layer": 2, "key": "1:2", "desc": "MB1 click cell" },
+    { "action": "press", "layer": 2, "key": "3:3", "desc": "Copy (Ctrl+C)" },
+    { "action": "press", "layer": 2, "key": "1:2", "desc": "MB1 click target" },
+    { "action": "press", "layer": 2, "key": "4:3", "desc": "Paste (Ctrl+V)" },
+    { "action": "release_layer", "desc": "Release Mouse" }
+  ]
+}

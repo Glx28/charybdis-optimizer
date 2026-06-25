@@ -1,0 +1,6 @@
+build/*.json
+!build/canonical.json
+!build/app_shortcut_scores.json
+__pycache__/
+*.pyc
+.env

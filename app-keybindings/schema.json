@@ -1,0 +1,27 @@
+{
+  "$comment": "Schema for app keybinding corpus files. Each file describes every known keybinding for one application, tagged by usage frequency so the keymap optimizer can weight shortcut accessibility.",
+  "fields": {
+    "id": "Unique app identifier (matches coach workflow id where applicable)",
+    "name": "Human-readable app name",
+    "version": "App version these keybindings were documented from",
+    "platform": "Target platform (windows, macos, linux, cross-platform)",
+    "categories": "Array of shortcut categories",
+    "category.name": "Category label (e.g. 'Navigation', 'Editing')",
+    "category.shortcuts": "Array of shortcut entries",
+    "shortcut.keys": "Key combination string (e.g. 'Ctrl+S', 'Alt+F4')",
+    "shortcut.action": "What the shortcut does",
+    "shortcut.frequency": "Usage tier: 'constant' (multiple times per minute), 'high' (many times per hour), 'medium' (several times per session), 'low' (occasionally), 'rare' (setup/config only)",
+    "shortcut.modifiers": "Parsed modifier array for optimizer matching: ['Ctrl'], ['Ctrl','Shift'], etc.",
+    "shortcut.base_key": "The non-modifier key: 'S', 'Tab', 'F5', 'Left', etc.",
+    "shortcut.context": "When this shortcut is relevant: 'always', 'text-editing', 'mouse-browsing', 'file-management', etc.",
+    "shortcut.charybdis_layer": "Which Charybdis layer provides this shortcut, if mapped (null if not directly mapped)",
+    "shortcut.notes": "Optional notes about this keybinding"
+  },
+  "frequency_weights": {
+    "constant": 10,
+    "high": 6,
+    "medium": 3,
+    "low": 1,
+    "rare": 0.2
+  }
+}

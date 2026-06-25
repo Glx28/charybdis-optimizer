@@ -1,0 +1,47 @@
+{
+  "id": "onenote",
+  "name": "Microsoft OneNote",
+  "version": "OneNote 365+",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Navigation",
+      "shortcuts": [
+        { "keys": "Ctrl+Page Down", "action": "Next page", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "PageDown", "context": "always" },
+        { "keys": "Ctrl+Page Up", "action": "Previous page", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "PageUp", "context": "always" },
+        { "keys": "Ctrl+Tab", "action": "Next section", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Tab", "context": "always" },
+        { "keys": "Ctrl+Shift+Tab", "action": "Previous section", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "Tab", "context": "always" },
+        { "keys": "Alt+Home", "action": "First page in section", "frequency": "low", "modifiers": ["Alt"], "base_key": "Home", "context": "always" },
+        { "keys": "Alt+End", "action": "Last page in section", "frequency": "low", "modifiers": ["Alt"], "base_key": "End", "context": "always" },
+        { "keys": "Ctrl+E", "action": "Search", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "E", "context": "always" }
+      ]
+    },
+    {
+      "name": "Editing",
+      "shortcuts": [
+        { "keys": "Ctrl+C", "action": "Copy", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "C", "context": "always" },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "V", "context": "always" },
+        { "keys": "Ctrl+X", "action": "Cut", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "X", "context": "always" },
+        { "keys": "Ctrl+Z", "action": "Undo", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "Z", "context": "always" },
+        { "keys": "Ctrl+Y", "action": "Redo", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Y", "context": "always" },
+        { "keys": "Ctrl+A", "action": "Select all", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "A", "context": "always" },
+        { "keys": "Ctrl+B", "action": "Bold", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "B", "context": "text-editing" },
+        { "keys": "Ctrl+I", "action": "Italic", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "I", "context": "text-editing" },
+        { "keys": "Ctrl+U", "action": "Underline", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "U", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+>", "action": "Increase font", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": ">", "context": "text-editing" },
+        { "keys": "Ctrl+K", "action": "Insert link", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "K", "context": "text-editing" },
+        { "keys": "Ctrl+S", "action": "Sync now", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "S", "context": "always" },
+        { "keys": "Ctrl+N", "action": "New page", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "N", "context": "always" },
+        { "keys": "Ctrl+Shift+M", "action": "New quick note", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "M", "context": "always" }
+      ]
+    },
+    {
+      "name": "Tags & To-Do",
+      "shortcuts": [
+        { "keys": "Ctrl+1", "action": "To Do tag", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "1", "context": "text-editing" },
+        { "keys": "Ctrl+2", "action": "Important tag", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "2", "context": "text-editing" },
+        { "keys": "Ctrl+3", "action": "Question tag", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "3", "context": "text-editing" }
+      ]
+    }
+  ]
+}

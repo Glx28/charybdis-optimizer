@@ -1,0 +1,96 @@
+{
+  "id": "excel",
+  "name": "Microsoft Excel",
+  "version": "Microsoft 365",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Navigation",
+      "shortcuts": [
+        { "keys": "Ctrl+Home", "action": "Go to cell A1", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Home", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+End", "action": "Go to last used cell", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "End", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Left", "action": "Jump to left edge of data", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "Left", "context": "always", "charybdis_layer": 1 },
+        { "keys": "Ctrl+Right", "action": "Jump to right edge of data", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "Right", "context": "always", "charybdis_layer": 1 },
+        { "keys": "Ctrl+Up", "action": "Jump to top edge of data", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Up", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Down", "action": "Jump to bottom edge of data", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Down", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+G", "action": "Go To dialog", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "G", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+F", "action": "Find", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "F", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+H", "action": "Find and replace", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "H", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Page Down", "action": "Next sheet", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "PageDown", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Page Up", "action": "Previous sheet", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "PageUp", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Tab", "action": "Move to next cell", "frequency": "constant", "modifiers": [], "base_key": "Tab", "context": "always" },
+        { "keys": "Shift+Tab", "action": "Move to previous cell", "frequency": "high", "modifiers": ["Shift"], "base_key": "Tab", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Enter", "action": "Confirm and move down", "frequency": "constant", "modifiers": [], "base_key": "Enter", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Shift+Enter", "action": "Confirm and move up", "frequency": "medium", "modifiers": ["Shift"], "base_key": "Enter", "context": "always", "charybdis_layer": 10 }
+      ]
+    },
+    {
+      "name": "Selection",
+      "shortcuts": [
+        { "keys": "Ctrl+A", "action": "Select all / current region", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "A", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Shift+End", "action": "Select to last used cell", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "End", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Shift+Home", "action": "Select to cell A1", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "Home", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Shift+Left", "action": "Select to left edge", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "Left", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Shift+Right", "action": "Select to right edge", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "Right", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Shift+Up", "action": "Select to top edge", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "Up", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Shift+Down", "action": "Select to bottom edge", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "Down", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Shift+Space", "action": "Select entire row", "frequency": "high", "modifiers": ["Shift"], "base_key": "Space", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Space", "action": "Select entire column", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Space", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Click", "action": "Select non-adjacent cells", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "Click", "context": "always" }
+      ]
+    },
+    {
+      "name": "Editing",
+      "shortcuts": [
+        { "keys": "F2", "action": "Edit cell", "frequency": "constant", "modifiers": [], "base_key": "F2", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Escape", "action": "Cancel edit", "frequency": "constant", "modifiers": [], "base_key": "Escape", "context": "always", "charybdis_layer": 2 },
+        { "keys": "Delete", "action": "Clear cell contents", "frequency": "high", "modifiers": [], "base_key": "Delete", "context": "always" },
+        { "keys": "Ctrl+C", "action": "Copy", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "C", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "V", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+X", "action": "Cut", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "X", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Z", "action": "Undo", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "Z", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Y", "action": "Redo", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Y", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+D", "action": "Fill down", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "D", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+R", "action": "Fill right", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "R", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+;", "action": "Insert current date", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": ";", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Shift+;", "action": "Insert current time", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": ";", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+S", "action": "Save", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "S", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Shift+V", "action": "Paste special", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "V", "context": "always", "charybdis_layer": 10 }
+      ]
+    },
+    {
+      "name": "Formatting",
+      "shortcuts": [
+        { "keys": "Ctrl+B", "action": "Bold", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "B", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+I", "action": "Italic", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "I", "context": "always" },
+        { "keys": "Ctrl+U", "action": "Underline", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "U", "context": "always" },
+        { "keys": "Ctrl+1", "action": "Format Cells dialog", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "1", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Shift+!", "action": "Number format", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "!", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Shift+$", "action": "Currency format", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "$", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Shift+%", "action": "Percent format", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "%", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Shift+~", "action": "General format", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "~", "context": "always", "charybdis_layer": 10 }
+      ]
+    },
+    {
+      "name": "Rows & Columns",
+      "shortcuts": [
+        { "keys": "Ctrl+Shift++", "action": "Insert cells/rows/columns", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "+", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+-", "action": "Delete cells/rows/columns", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "-", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+9", "action": "Hide selected rows", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "9", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Shift+9", "action": "Unhide rows", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "9", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+0", "action": "Hide selected columns", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "0", "context": "always", "charybdis_layer": 10 }
+      ]
+    },
+    {
+      "name": "Formulas",
+      "shortcuts": [
+        { "keys": "=", "action": "Start formula", "frequency": "constant", "modifiers": [], "base_key": "=", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Alt+=", "action": "AutoSum", "frequency": "high", "modifiers": ["Alt"], "base_key": "=", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+`", "action": "Show/hide formulas", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "`", "context": "always", "charybdis_layer": 10 },
+        { "keys": "F4", "action": "Toggle absolute ref ($)", "frequency": "constant", "modifiers": [], "base_key": "F4", "context": "always", "charybdis_layer": 10 },
+        { "keys": "Ctrl+Shift+Enter", "action": "Array formula (legacy)", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "Enter", "context": "always", "charybdis_layer": 10 },
+        { "keys": "F9", "action": "Calculate all workbooks", "frequency": "medium", "modifiers": [], "base_key": "F9", "context": "always", "charybdis_layer": 1 }
+      ]
+    }
+  ]
+}

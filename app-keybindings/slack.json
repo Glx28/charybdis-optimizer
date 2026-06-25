@@ -1,0 +1,46 @@
+{
+  "id": "slack",
+  "name": "Slack Desktop",
+  "version": "4.x+",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Navigation",
+      "shortcuts": [
+        { "keys": "Ctrl+K", "action": "Quick switcher", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "K", "context": "always" },
+        { "keys": "Ctrl+Shift+K", "action": "Browse DMs", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "K", "context": "always" },
+        { "keys": "Ctrl+Shift+T", "action": "Browse channels", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "T", "context": "always" },
+        { "keys": "Alt+Up", "action": "Previous channel", "frequency": "high", "modifiers": ["Alt"], "base_key": "Up", "context": "always" },
+        { "keys": "Alt+Down", "action": "Next channel", "frequency": "high", "modifiers": ["Alt"], "base_key": "Down", "context": "always" },
+        { "keys": "Alt+Shift+Up", "action": "Previous unread channel", "frequency": "high", "modifiers": ["Alt", "Shift"], "base_key": "Up", "context": "always" },
+        { "keys": "Alt+Shift+Down", "action": "Next unread channel", "frequency": "high", "modifiers": ["Alt", "Shift"], "base_key": "Down", "context": "always" },
+        { "keys": "Ctrl+Shift+M", "action": "Mentions & reactions", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "M", "context": "always" },
+        { "keys": "Ctrl+Shift+A", "action": "All unreads", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "A", "context": "always" },
+        { "keys": "Ctrl+Shift+S", "action": "Saved items", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "S", "context": "always" }
+      ]
+    },
+    {
+      "name": "Messaging",
+      "shortcuts": [
+        { "keys": "Enter", "action": "Send message", "frequency": "constant", "modifiers": [], "base_key": "Enter", "context": "text-editing" },
+        { "keys": "Shift+Enter", "action": "New line", "frequency": "high", "modifiers": ["Shift"], "base_key": "Enter", "context": "text-editing" },
+        { "keys": "Ctrl+B", "action": "Bold", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "B", "context": "text-editing" },
+        { "keys": "Ctrl+I", "action": "Italic", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "I", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+X", "action": "Strikethrough", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "X", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+>", "action": "Quote", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": ">", "context": "text-editing" },
+        { "keys": "Ctrl+Shift+C", "action": "Code block", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "C", "context": "text-editing" },
+        { "keys": "Ctrl+U", "action": "Upload file", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "U", "context": "always" },
+        { "keys": "Up", "action": "Edit last message", "frequency": "high", "modifiers": [], "base_key": "Up", "context": "always" },
+        { "keys": "Ctrl+Z", "action": "Undo", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Z", "context": "text-editing" }
+      ]
+    },
+    {
+      "name": "Calls",
+      "shortcuts": [
+        { "keys": "Ctrl+Shift+H", "action": "Start huddle", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "H", "context": "always" },
+        { "keys": "M", "action": "Toggle mute (in huddle)", "frequency": "constant", "modifiers": [], "base_key": "M", "context": "always" },
+        { "keys": "V", "action": "Toggle video", "frequency": "medium", "modifiers": [], "base_key": "V", "context": "always" }
+      ]
+    }
+  ]
+}

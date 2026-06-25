@@ -1,0 +1,20 @@
+{
+  "id": "git_workflow",
+  "name": "Git: terminal, stage, commit, push (via VS Code)",
+  "frequency": "high",
+  "weight": 0.8,
+  "steps": [
+    { "action": "hold_layer", "layer": 1, "key": "3:4", "desc": "Hold Nav" },
+    { "action": "press", "layer": 1, "key": "0:1", "desc": "Toggle Code (L5)" },
+    { "action": "release_layer", "desc": "Release Nav (on L5)" },
+    { "action": "press", "layer": 5, "key": "5:2", "desc": "Toggle terminal (Ctrl+`)" },
+    { "action": "press", "layer": 5, "key": "7:4", "desc": "Exit Code to base (type git commands)" },
+    { "action": "press", "layer": 0, "key": "7:5", "desc": "Enter (run git command)" },
+    { "action": "hold_layer", "layer": 1, "key": "3:4", "desc": "Hold Nav" },
+    { "action": "press", "layer": 1, "key": "0:1", "desc": "Toggle Code (L5)" },
+    { "action": "release_layer", "desc": "Release Nav (on L5)" },
+    { "action": "press", "layer": 5, "key": "12:2", "desc": "Git panel (Ctrl+Shift+G)" },
+    { "action": "press", "layer": 5, "key": "1:2", "desc": "Save all (Ctrl+S)" },
+    { "action": "press", "layer": 5, "key": "7:4", "desc": "Exit Code to base" }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "teams_meeting_controls",
+  "name": "Teams meeting: mute, camera, share screen, raise hand, end",
+  "frequency": "high",
+  "weight": 0.95,
+  "steps": [
+    { "action": "hold_layer", "layer": 4, "key": "7:4", "desc": "Hold System (R thumb)" },
+    { "action": "press", "layer": 4, "key": "7:3", "desc": "Mute toggle (Ctrl+Shift+M)" },
+    { "action": "release_layer", "desc": "Release System — speak" },
+    { "action": "hold_layer", "layer": 4, "key": "7:4", "desc": "Hold System again" },
+    { "action": "press", "layer": 4, "key": "7:3", "desc": "Mute toggle back" },
+    { "action": "press", "layer": 4, "key": "8:3", "desc": "Camera toggle" },
+    { "action": "press", "layer": 4, "key": "9:3", "desc": "Share screen" },
+    { "action": "press", "layer": 4, "key": "10:3", "desc": "Raise hand" },
+    { "action": "press", "layer": 4, "key": "11:3", "desc": "Hang up" },
+    { "action": "release_layer", "desc": "Release System" }
+  ]
+}

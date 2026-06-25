@@ -1,0 +1,23 @@
+{
+  "id": "excel_power_user",
+  "name": "Excel: formula, format, navigate sheets, select regions",
+  "frequency": "medium",
+  "weight": 0.5,
+  "steps": [
+    { "action": "hold_layer", "layer": 4, "key": "7:4", "desc": "Hold System (L4 right thumb)" },
+    { "action": "press", "layer": 4, "key": "0:3", "desc": "Toggle Excel layer (L10)" },
+    { "action": "release_layer", "desc": "Release System — now on L10" },
+    { "action": "press", "layer": 10, "key": "8:0", "desc": "= (start formula)" },
+    { "action": "press", "layer": 10, "key": "0:2", "desc": "Select entire row (Shift+Space)" },
+    { "action": "press", "layer": 10, "key": "3:2", "desc": "Format Cells (Ctrl+1)" },
+    { "action": "press", "layer": 10, "key": "4:3", "desc": "Currency format (Ctrl+Shift+$)" },
+    { "action": "press", "layer": 10, "key": "3:0", "desc": "Next sheet (Ctrl+PgDn)" },
+    { "action": "press", "layer": 10, "key": "9:0", "desc": "Jump to top of data (Ctrl+Up)" },
+    { "action": "press", "layer": 10, "key": "4:1", "desc": "Select to bottom edge (Ctrl+Shift+Down)" },
+    { "action": "press", "layer": 10, "key": "7:2", "desc": "Copy (Ctrl+C)" },
+    { "action": "press", "layer": 10, "key": "2:0", "desc": "Previous sheet (Ctrl+PgUp)" },
+    { "action": "press", "layer": 10, "key": "8:2", "desc": "Paste (Ctrl+V)" },
+    { "action": "press", "layer": 10, "key": "5:2", "desc": "Save (Ctrl+S)" },
+    { "action": "press", "layer": 10, "key": "3:4", "desc": "Exit to base (coach_base)" }
+  ]
+}

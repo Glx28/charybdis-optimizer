@@ -1,0 +1,59 @@
+{
+  "id": "explorer",
+  "name": "File Explorer",
+  "version": "Windows 11",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Navigation",
+      "shortcuts": [
+        { "keys": "Alt+Up", "action": "Parent folder", "frequency": "high", "modifiers": ["Alt"], "base_key": "Up", "context": "file-management" },
+        { "keys": "Alt+Left", "action": "Back", "frequency": "constant", "modifiers": ["Alt"], "base_key": "Left", "context": "file-management", "charybdis_layer": 2 },
+        { "keys": "Alt+Right", "action": "Forward", "frequency": "high", "modifiers": ["Alt"], "base_key": "Right", "context": "file-management", "charybdis_layer": 2 },
+        { "keys": "Alt+D", "action": "Focus address bar", "frequency": "high", "modifiers": ["Alt"], "base_key": "D", "context": "file-management" },
+        { "keys": "Ctrl+L", "action": "Focus address bar (alt)", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "L", "context": "file-management" },
+        { "keys": "Enter", "action": "Open selected item", "frequency": "constant", "modifiers": [], "base_key": "Enter", "context": "file-management", "charybdis_layer": 2 },
+        { "keys": "Alt+Enter", "action": "Properties", "frequency": "medium", "modifiers": ["Alt"], "base_key": "Enter", "context": "file-management" },
+        { "keys": "Backspace", "action": "Go up one level", "frequency": "high", "modifiers": [], "base_key": "Backspace", "context": "file-management", "charybdis_layer": 2 },
+        { "keys": "F4", "action": "Focus address bar dropdown", "frequency": "low", "modifiers": [], "base_key": "F4", "context": "file-management" }
+      ]
+    },
+    {
+      "name": "File Operations",
+      "shortcuts": [
+        { "keys": "Ctrl+N", "action": "New window", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "N", "context": "file-management" },
+        { "keys": "Ctrl+Shift+N", "action": "New folder", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "N", "context": "file-management" },
+        { "keys": "F2", "action": "Rename", "frequency": "constant", "modifiers": [], "base_key": "F2", "context": "file-management", "charybdis_layer": 1 },
+        { "keys": "Delete", "action": "Delete to Recycle Bin", "frequency": "high", "modifiers": [], "base_key": "Delete", "context": "file-management" },
+        { "keys": "Shift+Delete", "action": "Permanent delete", "frequency": "low", "modifiers": ["Shift"], "base_key": "Delete", "context": "file-management" },
+        { "keys": "Ctrl+C", "action": "Copy", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "C", "context": "file-management", "charybdis_layer": 2 },
+        { "keys": "Ctrl+X", "action": "Cut", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "X", "context": "file-management", "charybdis_layer": 2 },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "V", "context": "file-management", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Z", "action": "Undo", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Z", "context": "file-management", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Y", "action": "Redo", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "Y", "context": "file-management", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Shift+C", "action": "Copy path", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "C", "context": "file-management" }
+      ]
+    },
+    {
+      "name": "Selection",
+      "shortcuts": [
+        { "keys": "Ctrl+A", "action": "Select all", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "A", "context": "file-management", "charybdis_layer": 2 },
+        { "keys": "Ctrl+Click", "action": "Select multiple (non-adjacent)", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Click", "context": "file-management" },
+        { "keys": "Shift+Click", "action": "Select range", "frequency": "high", "modifiers": ["Shift"], "base_key": "Click", "context": "file-management" },
+        { "keys": "Ctrl+Shift+6", "action": "Toggle details pane", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "6", "context": "file-management" }
+      ]
+    },
+    {
+      "name": "View & Search",
+      "shortcuts": [
+        { "keys": "Ctrl+E", "action": "Search box", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "E", "context": "file-management" },
+        { "keys": "Ctrl+F", "action": "Search box (alt)", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "F", "context": "file-management", "charybdis_layer": 1 },
+        { "keys": "F11", "action": "Fullscreen", "frequency": "low", "modifiers": [], "base_key": "F11", "context": "file-management", "charybdis_layer": 1 },
+        { "keys": "Alt+P", "action": "Preview pane", "frequency": "low", "modifiers": ["Alt"], "base_key": "P", "context": "file-management" },
+        { "keys": "Ctrl+Shift+1", "action": "Extra large icons", "frequency": "rare", "modifiers": ["Ctrl", "Shift"], "base_key": "1", "context": "file-management" },
+        { "keys": "Ctrl+Shift+2", "action": "Large icons", "frequency": "rare", "modifiers": ["Ctrl", "Shift"], "base_key": "2", "context": "file-management" },
+        { "keys": "Ctrl+Shift+6", "action": "Details view", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "6", "context": "file-management" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "id": "terminal",
+  "name": "Windows Terminal / PowerShell",
+  "version": "Windows Terminal 1.20+",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Tabs & Panes",
+      "shortcuts": [
+        { "keys": "Ctrl+Shift+T", "action": "New tab", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "T", "context": "always" },
+        { "keys": "Ctrl+Shift+W", "action": "Close tab/pane", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "W", "context": "always" },
+        { "keys": "Ctrl+Tab", "action": "Next tab", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "Tab", "context": "always" },
+        { "keys": "Ctrl+Shift+Tab", "action": "Previous tab", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "Tab", "context": "always" },
+        { "keys": "Alt+Shift+D", "action": "Split pane (auto)", "frequency": "high", "modifiers": ["Alt", "Shift"], "base_key": "D", "context": "always" },
+        { "keys": "Alt+Shift+-", "action": "Split pane horizontal", "frequency": "medium", "modifiers": ["Alt", "Shift"], "base_key": "-", "context": "always" },
+        { "keys": "Alt+Shift++", "action": "Split pane vertical", "frequency": "medium", "modifiers": ["Alt", "Shift"], "base_key": "+", "context": "always" },
+        { "keys": "Alt+Left", "action": "Focus pane left", "frequency": "medium", "modifiers": ["Alt"], "base_key": "Left", "context": "always" },
+        { "keys": "Alt+Right", "action": "Focus pane right", "frequency": "medium", "modifiers": ["Alt"], "base_key": "Right", "context": "always" },
+        { "keys": "Alt+Up", "action": "Focus pane up", "frequency": "low", "modifiers": ["Alt"], "base_key": "Up", "context": "always" },
+        { "keys": "Alt+Down", "action": "Focus pane down", "frequency": "low", "modifiers": ["Alt"], "base_key": "Down", "context": "always" }
+      ]
+    },
+    {
+      "name": "Terminal Actions",
+      "shortcuts": [
+        { "keys": "Ctrl+C", "action": "Copy / Cancel", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "C", "context": "always" },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "V", "context": "always" },
+        { "keys": "Ctrl+Shift+C", "action": "Copy (explicit)", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "C", "context": "always" },
+        { "keys": "Ctrl+Shift+V", "action": "Paste (explicit)", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "V", "context": "always" },
+        { "keys": "Ctrl+Shift+F", "action": "Find", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "F", "context": "always" },
+        { "keys": "Ctrl+L", "action": "Clear screen", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "L", "context": "always" },
+        { "keys": "Ctrl+R", "action": "Reverse search history", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "R", "context": "always" },
+        { "keys": "Tab", "action": "Autocomplete", "frequency": "constant", "modifiers": [], "base_key": "Tab", "context": "always" },
+        { "keys": "Up", "action": "Previous command", "frequency": "constant", "modifiers": [], "base_key": "Up", "context": "always" },
+        { "keys": "Down", "action": "Next command", "frequency": "high", "modifiers": [], "base_key": "Down", "context": "always" }
+      ]
+    },
+    {
+      "name": "Zoom & Settings",
+      "shortcuts": [
+        { "keys": "Ctrl++", "action": "Zoom in", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "+", "context": "always" },
+        { "keys": "Ctrl+-", "action": "Zoom out", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "-", "context": "always" },
+        { "keys": "Ctrl+0", "action": "Reset zoom", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "0", "context": "always" },
+        { "keys": "Ctrl+,", "action": "Settings", "frequency": "low", "modifiers": ["Ctrl"], "base_key": ",", "context": "always" },
+        { "keys": "F11", "action": "Toggle fullscreen", "frequency": "low", "modifiers": [], "base_key": "F11", "context": "always" }
+      ]
+    }
+  ]
+}

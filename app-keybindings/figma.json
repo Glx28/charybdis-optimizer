@@ -1,0 +1,61 @@
+{
+  "id": "figma",
+  "name": "Figma (Browser/Desktop)",
+  "version": "2024+",
+  "platform": "windows",
+  "categories": [
+    {
+      "name": "Tools",
+      "shortcuts": [
+        { "keys": "V", "action": "Move tool", "frequency": "constant", "modifiers": [], "base_key": "V", "context": "always" },
+        { "keys": "F", "action": "Frame tool", "frequency": "high", "modifiers": [], "base_key": "F", "context": "always" },
+        { "keys": "R", "action": "Rectangle", "frequency": "high", "modifiers": [], "base_key": "R", "context": "always" },
+        { "keys": "O", "action": "Ellipse", "frequency": "medium", "modifiers": [], "base_key": "O", "context": "always" },
+        { "keys": "L", "action": "Line", "frequency": "medium", "modifiers": [], "base_key": "L", "context": "always" },
+        { "keys": "T", "action": "Text tool", "frequency": "high", "modifiers": [], "base_key": "T", "context": "always" },
+        { "keys": "P", "action": "Pen tool", "frequency": "medium", "modifiers": [], "base_key": "P", "context": "always" },
+        { "keys": "I", "action": "Eyedropper", "frequency": "medium", "modifiers": [], "base_key": "I", "context": "always" },
+        { "keys": "K", "action": "Scale tool", "frequency": "medium", "modifiers": [], "base_key": "K", "context": "always" },
+        { "keys": "H", "action": "Hand tool (pan)", "frequency": "high", "modifiers": [], "base_key": "H", "context": "always" }
+      ]
+    },
+    {
+      "name": "Object Operations",
+      "shortcuts": [
+        { "keys": "Ctrl+C", "action": "Copy", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "C", "context": "always" },
+        { "keys": "Ctrl+V", "action": "Paste", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "V", "context": "always" },
+        { "keys": "Ctrl+D", "action": "Duplicate", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "D", "context": "always" },
+        { "keys": "Ctrl+Z", "action": "Undo", "frequency": "constant", "modifiers": ["Ctrl"], "base_key": "Z", "context": "always" },
+        { "keys": "Ctrl+Shift+Z", "action": "Redo", "frequency": "high", "modifiers": ["Ctrl", "Shift"], "base_key": "Z", "context": "always" },
+        { "keys": "Ctrl+G", "action": "Group", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "G", "context": "always" },
+        { "keys": "Ctrl+Shift+G", "action": "Ungroup", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "G", "context": "always" },
+        { "keys": "Ctrl+A", "action": "Select all", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "A", "context": "always" },
+        { "keys": "Delete", "action": "Delete selected", "frequency": "high", "modifiers": [], "base_key": "Delete", "context": "always" },
+        { "keys": "Ctrl+Shift+H", "action": "Flip horizontal", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "H", "context": "always" },
+        { "keys": "Ctrl+Shift+V", "action": "Flip vertical", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "V", "context": "always" }
+      ]
+    },
+    {
+      "name": "View & Zoom",
+      "shortcuts": [
+        { "keys": "Ctrl++", "action": "Zoom in", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "+", "context": "always" },
+        { "keys": "Ctrl+-", "action": "Zoom out", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "-", "context": "always" },
+        { "keys": "Ctrl+0", "action": "Zoom to 100%", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "0", "context": "always" },
+        { "keys": "Ctrl+1", "action": "Zoom to fit", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "1", "context": "always" },
+        { "keys": "Ctrl+2", "action": "Zoom to selection", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "2", "context": "always" },
+        { "keys": "Ctrl+Shift+3", "action": "Zoom to next frame", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "3", "context": "always" },
+        { "keys": "Ctrl+\\", "action": "Toggle UI", "frequency": "medium", "modifiers": ["Ctrl"], "base_key": "\\", "context": "always" }
+      ]
+    },
+    {
+      "name": "Layers & Components",
+      "shortcuts": [
+        { "keys": "Ctrl+Shift+E", "action": "Export", "frequency": "medium", "modifiers": ["Ctrl", "Shift"], "base_key": "E", "context": "always" },
+        { "keys": "Ctrl+Alt+K", "action": "Create component", "frequency": "medium", "modifiers": ["Ctrl", "Alt"], "base_key": "K", "context": "always" },
+        { "keys": "Ctrl+Shift+O", "action": "Outline stroke", "frequency": "low", "modifiers": ["Ctrl", "Shift"], "base_key": "O", "context": "always" },
+        { "keys": "Ctrl+E", "action": "Flatten selection", "frequency": "low", "modifiers": ["Ctrl"], "base_key": "E", "context": "always" },
+        { "keys": "Ctrl+B", "action": "Bold (text)", "frequency": "high", "modifiers": ["Ctrl"], "base_key": "B", "context": "text-editing" }
+      ]
+    }
+  ]
+}

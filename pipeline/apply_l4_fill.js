@@ -3,10 +3,10 @@
 const fs = require("fs");
 const path = require("path");
 const { parseCsv, csvSplit } = require("./lib/csv");
-const { ROOT } = require("./lib/io");
+const { SIBLING_ZMK } = require("./lib/io");
 
-const CSV_PATH = path.join(ROOT, "layout/keybindings_explained.csv");
-const APPLY_PATH = path.join(ROOT, "scripts/zmk-studio/apply_every_key.js");
+const CSV_PATH = path.join(SIBLING_ZMK, "layout/keybindings_explained.csv");
+const APPLY_PATH = path.join(SIBLING_ZMK, "scripts/zmk-studio/apply_every_key.js");
 
 // L4 right half: y1 (x7-x12), y2 (x7-x12), y3 (x7-x12) = 18 slots
 // L4 left: x0,y2 + x0,y3 + x3-x5,y3 = 5 more slots

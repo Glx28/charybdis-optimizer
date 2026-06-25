@@ -1,8 +1,9 @@
-const { readBuild, readJson, ROOT } = require("./lib/io");
+const { readBuild, readJson } = require("./lib/io");
 const fs = require("fs");
 const path = require("path");
 
-const WORKFLOW_DIR = path.join(ROOT, "apps", "charybdis-coach", "workflows");
+const SIBLING_COACH = process.env.COACH_PATH || path.resolve(__dirname, "..", "..", "charybdis-coach");
+const WORKFLOW_DIR = path.join(SIBLING_COACH, "workflows");
 
 const ICON_MAP = {
   teams: "chat",

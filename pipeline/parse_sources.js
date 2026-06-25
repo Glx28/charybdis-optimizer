@@ -1,5 +1,5 @@
 const { loadCsv } = require("./lib/csv");
-const { readSource, readJson, writeBuild, ROOT, sourceExists } = require("./lib/io");
+const { readSource, readJson, writeBuild, ROOT, SIBLING_ZMK, sourceExists } = require("./lib/io");
 const { normalizeParam, normalizeModifiers, normalizeBehavior } = require("./lib/normalize");
 const { ALL_COLS, ALL_ROWS, LAYER_NAMES, hand, FINGER_MAP } = require("./lib/constants");
 const path = require("path");
@@ -13,7 +13,7 @@ function hashContent(text) {
 function parseCsvSource() {
   const csvPath = "layout/keybindings_explained.csv";
   const text = readSource(csvPath);
-  const rows = loadCsv(path.join(ROOT, csvPath));
+  const rows = loadCsv(path.join(SIBLING_ZMK, csvPath));
   const layers = {};
   for (const r of rows) {
     const layer = r.layer;

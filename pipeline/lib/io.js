@@ -1,15 +1,23 @@
 const fs = require("fs");
 const path = require("path");
 
-const ROOT = path.resolve(__dirname, "..", "..", "..");
-const BUILD = path.join(__dirname, "..", "build");
+const ROOT = path.resolve(__dirname, "..", "..");
+const BUILD = path.join(ROOT, "build");
+const SIBLING_ZMK = process.env.ZMK_CONFIG_PATH || path.resolve(ROOT, "..", "charybdis-zmk-config");
+const SIBLING_TOOLS = process.env.TOOLS_PATH || path.resolve(ROOT, "..", "charybdis-tools");
 
 function ensureBuildDir() {
   if (!fs.existsSync(BUILD)) fs.mkdirSync(BUILD, { recursive: true });
 }
 
+function resolveSource(relPath) {
+  const zmkPath = path.join(SIBLING_ZMK, relPath);
+  if (fs.existsSync(zmkPath)) return zmkPath;
+  return path.join(ROOT, relPath);
+}
+
 function readSource(relPath) {
-  return fs.readFileSync(path.join(ROOT, relPath), "utf-8");
+  return fs.readFileSync(resolveSource(relPath), "utf-8");
 }
 
 function readJson(relPath) {
@@ -26,7 +34,7 @@ function writeBuild(name, obj) {
 }
 
 function sourceExists(relPath) {
-  return fs.existsSync(path.join(ROOT, relPath));
+  return fs.existsSync(resolveSource(relPath));
 }
 
-module.exports = { ROOT, BUILD, readSource, readJson, readBuild, writeBuild, ensureBuildDir, sourceExists };
+module.exports = { ROOT, BUILD, SIBLING_ZMK, SIBLING_TOOLS, readSource, readJson, readBuild, writeBuild, ensureBuildDir, sourceExists };

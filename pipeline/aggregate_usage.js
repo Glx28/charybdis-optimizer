@@ -1,10 +1,10 @@
 const fs = require("fs");
 const path = require("path");
-const { writeBuild, ROOT } = require("./lib/io");
+const { writeBuild, BUILD, SIBLING_TOOLS } = require("./lib/io");
 
-const USAGE_LOG = path.join(ROOT, "runtime", "shortcut_usage.jsonl");
-const EVENTS_LOG = path.join(ROOT, "runtime", "charybdis_events.jsonl");
-const SCORES_PATH = path.join(ROOT, "scripts", "keymap-optimizer", "build", "app_shortcut_scores.json");
+const USAGE_LOG = path.join(SIBLING_TOOLS, "runtime", "shortcut_usage.jsonl");
+const EVENTS_LOG = path.join(SIBLING_TOOLS, "runtime", "charybdis_events.jsonl");
+const SCORES_PATH = path.join(BUILD, "app_shortcut_scores.json");
 
 /**
  * Normalize AHK key notation to human-readable format matching app_shortcut_scores.json.

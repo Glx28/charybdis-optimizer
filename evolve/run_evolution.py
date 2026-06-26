@@ -1035,6 +1035,17 @@ def main():
     print("=" * 60)
     sys.stdout.flush()
 
+    # Auto-analyze best solution
+    try:
+        from analyze_results import load_data, analyze
+        _, a_positions, a_pool, a_current, _ = load_data(build_dir)
+        best_genome = pareto_solutions[0]["genome"] if pareto_solutions else None
+        if best_genome:
+            print("\n" + analyze(best_genome, a_positions, a_pool, a_current, canonical, config))
+    except Exception as e:
+        print(f"Auto-analysis skipped: {e}")
+    sys.stdout.flush()
+
 
 if __name__ == "__main__":
     main()

@@ -49,6 +49,7 @@
     "mouse_layer_bonus": 5.0,
     "app_coherence": 3.0,
     "mouse_accessibility": 5.0,
-    "layer_switch_penalty": 0.5
+    "layer_switch_penalty": 0.5,
+    "layer_access_effort": 1.0
   }
 }

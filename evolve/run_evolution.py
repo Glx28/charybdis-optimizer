@@ -106,7 +106,7 @@ def build_conjunction_pairs_from_scores(scores):
     return pairs
 
 
-def load_previous_elites(build_dir, n_positions):
+def load_previous_elites(build_dir, n_positions, n_shortcuts, access_analyzer=None):
     """Load genomes from previous evolution run if available.
     Checks both final results and interim results (from interrupted runs)."""
     elites = []
@@ -119,11 +119,13 @@ def load_previous_elites(build_dir, n_positions):
                 prev = json.load(f)
             for sol in prev.get("pareto_front", []):
                 g = sol.get("genome")
-                if g and len(g) == n_positions:
+                if (g and len(g) == n_positions and all(sid < n_shortcuts for sid in g)
+                    and (access_analyzer is None or access_analyzer.validate(g).valid)):
                     elites.append(list(g))
             for sol in prev.get("qd_solutions", []):
                 g = sol.get("genome")
-                if g and len(g) == n_positions:
+                if (g and len(g) == n_positions and all(sid < n_shortcuts for sid in g)
+                    and (access_analyzer is None or access_analyzer.validate(g).valid)):
                     elites.append(list(g))
         except (json.JSONDecodeError, KeyError):
             continue
@@ -242,7 +244,7 @@ def preseed_unplaced_shortcuts(genome, positions, shortcut_pool, layer_positions
 
 
 def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_positions,
-                    build_dir=None):
+                    build_dir=None, access_analyzer=None):
     from operators import swap_within_layer, swap_to_empty, migrate_shortcut, custom_mutate
 
     # Pre-seed unplaced important shortcuts into the base genome
@@ -250,7 +252,9 @@ def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_posit
 
     population = [copy.copy(seeded_genome)]
 
-    prev_elites = load_previous_elites(build_dir, len(current_genome)) if build_dir else []
+    prev_elites = load_previous_elites(
+        build_dir, len(current_genome), len(shortcut_pool), access_analyzer
+    ) if build_dir else []
 
     # ~30% from previous elites (direct injection)
     elite_budget = int(n_pop * 0.3)
@@ -435,7 +439,10 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
     if scratch_mode:
         raw_pop = seed_population_scratch(current_genome, pop_size, positions, shortcut_pool, layer_positions)
     else:
-        raw_pop = seed_population(current_genome, pop_size, positions, shortcut_pool, layer_positions, build_dir)
+        raw_pop = seed_population(
+            current_genome, pop_size, positions, shortcut_pool, layer_positions,
+            build_dir, evaluator.access_analyzer
+        )
     population = [creator.Individual(ind) for ind in raw_pop]
 
     def batch_evaluate(pop_list):
@@ -472,6 +479,12 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                 ckpt.get("pop_size") == pop_size and
                 ckpt.get("config_hash") == _config_hash(config)):
                 saved_pop = ckpt["population"]
+                if evaluator.access_analyzer and any(
+                    not evaluator.access_analyzer.validate(g).valid for g in saved_pop
+                ):
+                    print("  Checkpoint found but layer access invariant fails -- starting fresh")
+                    sys.stdout.flush()
+                    raise ValueError("checkpoint violates layer access invariant")
                 population = [creator.Individual(g) for g in saved_pop]
                 fitnesses = batch_evaluate(population)
                 for ind, fit in zip(population, fitnesses):
@@ -532,6 +545,9 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
             interim = []
             for i, ind in enumerate(cur_front[:config.get("pareto_front_size", 20)]):
                 genome = list(ind)
+                access_validation = evaluator.access_analyzer.validate(genome) if evaluator.access_analyzer else None
+                if access_validation is not None and not access_validation.valid:
+                    continue
                 interim.append({
                     "id": f"evo_{i}",
                     "fitness": {
@@ -870,6 +886,7 @@ def main():
         conjunction_pairs=conjunction_pairs,
         device=device,
         current_genome=current_genome,
+        canonical=canonical,
     )
     assigned_count = sum(1 for g in current_genome if g >= 0)
     print(f"Current layout: {assigned_count}/{len(current_genome)} positions assigned")
@@ -877,7 +894,7 @@ def main():
     seed_fitness = evaluator.evaluate(current_genome)
     seed_breakdown = evaluator.evaluate_full(current_genome)
     print(f"Seed fitness: effort={seed_fitness[0]:.1f}, adj={-seed_fitness[1]:.1f}, viol={seed_fitness[2]:.1f}")
-    print(f"Breakdown: {json.dumps({k: round(float(v), 2) for k, v in seed_breakdown.items()})}")
+    print(f"Breakdown: {json.dumps({k: round(float(v), 2) if isinstance(v, (int, float)) else v for k, v in seed_breakdown.items()}, default=str)}")
     sys.stdout.flush()
 
     # Run NSGA-II
@@ -888,7 +905,14 @@ def main():
                                     build_dir=build_dir, scratch_mode=scratch_mode)
 
     pareto_solutions = []
-    for i, ind in enumerate(front[:config.get("pareto_front_size", 20)]):
+    valid_front = []
+    for ind in front:
+        if evaluator.access_analyzer is None or evaluator.access_analyzer.validate(list(ind)).valid:
+            valid_front.append(ind)
+    if len(valid_front) < len(front):
+        print(f"Filtered {len(front) - len(valid_front)} invalid layer-access solution(s) from Pareto front")
+
+    for i, ind in enumerate(valid_front[:config.get("pareto_front_size", 20)]):
         genome = list(ind)
         breakdown = evaluator.evaluate_full(genome)
         bd = evaluator.behavior_descriptors(genome)
@@ -902,7 +926,7 @@ def main():
                 "violations": round(ind.fitness.values[2], 2),
             },
             "behavior": {"app_balance": round(bd[0], 3), "thumb_utilization": round(bd[1], 3)},
-            "scoring_breakdown": {k: round(float(v), 2) for k, v in breakdown.items()},
+            "scoring_breakdown": {k: round(float(v), 2) if isinstance(v, (int, float)) else v for k, v in breakdown.items()},
             "total_assignments": sum(1 for g in genome if g >= 0),
             "changes_from_current": sum(1 for i in range(len(genome)) if genome[i] != current_genome[i]),
             "genome": genome,
@@ -926,7 +950,7 @@ def main():
                     "id": f"qd_{i}",
                     "objective": elite["objective"],
                     "behavior": elite["behavior"],
-                    "scoring_breakdown": {k: round(float(v), 2) for k, v in breakdown.items()},
+                    "scoring_breakdown": {k: round(float(v), 2) if isinstance(v, (int, float)) else v for k, v in breakdown.items()},
                     "total_assignments": sum(1 for g in genome if g >= 0),
                     "genome": genome,
                     "changes": changes[:50],
@@ -950,7 +974,7 @@ def main():
             "adjacency": round(-seed_fitness[1], 2),
             "violations": round(seed_fitness[2], 2),
         },
-        "seed_breakdown": {k: round(float(v), 2) for k, v in seed_breakdown.items()},
+        "seed_breakdown": {k: round(float(v), 2) if isinstance(v, (int, float)) else v for k, v in seed_breakdown.items()},
         "pareto_front": pareto_solutions,
         "convergence": convergence,
     }

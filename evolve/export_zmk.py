@@ -10,8 +10,9 @@ from pathlib import Path
 
 from representation import (
     build_position_index, build_shortcut_pool, encode_current_layout,
-    decode_genome, LAYER_NAMES, KNOWN_KEY_NAMES,
+    decode_genome, LAYER_NAMES, KNOWN_KEY_NAMES, split_shortcut_keys,
 )
+from layer_access import LayerAccessAnalyzer
 
 
 # Map from optimizer shortcut keys to ZMK Studio parameter + modifiers.
@@ -62,6 +63,31 @@ KEY_TO_ZMK_PARAM.update({
     "PageUp": "Keyboard PageUp", "PageDown": "Keyboard PageDown",
     "Insert": "Keyboard Insert",
     "PrintScreen": "Keyboard PrintScreen and SysReq",
+    "Print Screen": "Keyboard PrintScreen and SysReq",
+    "Page Up": "Keyboard PageUp", "Page Down": "Keyboard PageDown",
+    "Del": "Keyboard Delete Forward",
+    "Shift": "Keyboard LeftShift",
+    # Pause/Break not available in ZMK Studio — Win+Pause is in UNSUPPORTED_SHORTCUTS
+    # Shifted symbols — map to base key (shift is a modifier)
+    "!": "Keyboard 1 and Bang",
+    "@": "Keyboard 2 and At",
+    "#": "Keyboard 3 and Hash",
+    "$": "Keyboard 4 and Dollar",
+    "%": "Keyboard 5 and Percent",
+    "^": "Keyboard 6 and Caret",
+    "&": "Keyboard 7 and Ampersand",
+    "*": "Keyboard 8 and Star",
+    "(": "Keyboard 9 and Left Bracket",
+    ")": "Keyboard 0 and Right Bracket",
+    "_": "Keyboard Dash and Underscore",
+    "{": "Keyboard Left Brace",
+    "}": "Keyboard Right Brace",
+    "|": "Keyboard Backslash and Pipe",
+    ":": "Keyboard SemiColon and Colon",
+    '"': "Keyboard Left Apos and Double",
+    "<": "Keyboard Comma and LessThan",
+    ">": "Keyboard Period and GreaterThan",
+    "?": "Keyboard ForwardSlash and QuestionMark",
     # Symbols
     "`": "Keyboard Grave Accent and Tilde", "~": "Keyboard Grave Accent and Tilde",
     "-": "Keyboard Dash and Underscore",
@@ -73,10 +99,28 @@ KEY_TO_ZMK_PARAM.update({
     ",": "Keyboard Comma and LessThan",
     ".": "Keyboard Period and GreaterThan",
     "/": "Keyboard ForwardSlash and QuestionMark",
+    "Period": "Keyboard Period and GreaterThan",
+    "Comma": "Keyboard Comma and LessThan",
+    "Equal": "Keyboard Equals and Plus",
+    "Equals": "Keyboard Equals and Plus",
+    "Equal and Plus": "Keyboard Equals and Plus",
+    "Minus": "Keyboard Dash and Underscore",
+    "Dash": "Keyboard Dash and Underscore",
+    "ForwardSlash": "Keyboard ForwardSlash and QuestionMark",
+    "Backslash": "Keyboard Backslash and Pipe",
+    "SemiColon": "Keyboard SemiColon and Colon",
+    "Apostrophe": "Keyboard Left Apos and Double",
+    "Grave": "Keyboard Grave Accent and Tilde",
+    "Left Brace": "Keyboard Left Brace",
+    "Right Brace": "Keyboard Right Brace",
 })
 
 # Shortcuts that can't be represented as a single Key Press in ZMK Studio
-UNSUPPORTED_SHORTCUTS = {"Click", "Alt+Click", "Ctrl+Click", "Shift+Click"}
+UNSUPPORTED_SHORTCUTS = {"Click", "Alt+Click", "Ctrl+Click", "Shift+Click",
+                         "Ctrl+K S",  # VS Code chord — can't be single ZMK binding
+                         "Win+Pause",  # Pause/Break not in ZMK Studio key list
+                         "Alt+Shift",  # modifier-only language switch
+                         }
 
 
 def shortcut_to_zmk_binding(shortcut):
@@ -88,13 +132,11 @@ def shortcut_to_zmk_binding(shortcut):
         return None
 
     keys = shortcut.keys
-    parts = keys.split("+")
-
     zmk_mods = []
-    base = parts[-1] if parts[-1] else "+"  # handle Ctrl++ where last part is empty
-    for p in parts[:-1]:
-        if not p:
-            continue
+    mods, base = split_shortcut_keys(keys)
+    if keys.startswith("Ctrl+K ") or not base:
+        return None
+    for p in mods:
         zmk_mod = MOD_MAP.get(p)
         if zmk_mod:
             zmk_mods.append(zmk_mod)
@@ -143,6 +185,17 @@ def _base_key_to_binding(shortcut):
             "label": key_id,
         }
 
+    for prefix, behavior in [("momentary_layer_", "Momentary Layer"),
+                              ("toggle_layer_", "Toggle Layer"),
+                              ("to_layer_", "To Layer")]:
+        if key_id.startswith(prefix):
+            return {
+                "behavior": behavior,
+                "parameter": shortcut.zmk_parameter,
+                "modifiers": [],
+                "label": behavior,
+            }
+
     if key_id in ("reset", "bootloader"):
         return {
             "behavior": key_id.capitalize(),
@@ -172,7 +225,11 @@ def _base_key_to_binding(shortcut):
     # Try zmk_parameter first, with validation
     if shortcut.zmk_parameter:
         param = shortcut.zmk_parameter
-        if not param.startswith("Keyboard ") and not param.startswith("Keypad "):
+        # Try KEY_TO_ZMK_PARAM first (handles aliases like "Print Screen" -> full name)
+        mapped = KEY_TO_ZMK_PARAM.get(param)
+        if mapped and mapped in KNOWN_KEY_NAMES:
+            param = mapped
+        elif not param.startswith("Keyboard ") and not param.startswith("Keypad "):
             param = f"Keyboard {param}"
         if param in KNOWN_KEY_NAMES:
             return {
@@ -223,11 +280,27 @@ def _base_key_to_binding(shortcut):
     }
 
 
+def _validate_layer_access_or_raise(genome, positions, pool, canonical):
+    analyzer = LayerAccessAnalyzer(canonical, positions, pool)
+    validation = analyzer.validate(genome)
+    if not validation.valid:
+        print("\n" + "=" * 60)
+        print("LAYER ACCESS VALIDATION FAILED")
+        print("=" * 60)
+        for err in validation.errors:
+            print(f"  - {err}")
+        print("Refusing to export an apply script that can soft-lock layers.")
+        print("=" * 60 + "\n")
+        raise ValueError("invalid layer access graph")
+    return validation
+
+
 def export_genome_to_zmk(genome, positions, pool, canonical, solution_id="evolved"):
     """Generate ZMK Studio apply script entries from a genome.
 
     Returns the full layout (unchanged + changed keys) as a list of dicts.
     """
+    _validate_layer_access_or_raise(genome, positions, pool, canonical)
     current = encode_current_layout(canonical, positions, pool)
     changes = []
 
@@ -305,6 +378,7 @@ def generate_apply_script(changes, version="evolved"):
                 print(f"  No suggestions found — check zmk_studio_key_names.json")
         print(f"\nFix these in KEY_TO_ZMK_PARAM or ALIAS in export_zmk.py before applying.")
         print(f"{'='*60}\n")
+        raise ValueError(f"{len(bad)} invalid ZMK Studio key parameter(s)")
 
     layers = sorted(set(c["layer"] for c in changes))
     keys_json = json.dumps(changes, indent=2)
@@ -451,6 +525,7 @@ def main():
 
     positions = build_position_index(canonical, {7})
     pool = build_shortcut_pool(scores, canonical)
+    analyzer = LayerAccessAnalyzer(canonical, positions, pool)
 
     front = results.get("pareto_front", [])
     if not front:
@@ -459,9 +534,25 @@ def main():
 
     if sol_idx is not None:
         solution = front[sol_idx]
+        validation = analyzer.validate(solution["genome"])
+        if not validation.valid:
+            print(f"Solution {solution.get('id', sol_idx)} is invalid:")
+            for err in validation.errors:
+                print(f"  - {err}")
+            raise ValueError("selected solution violates layer access invariant")
     else:
         # Best balanced: lowest effort + violations
-        solution = min(front, key=lambda s: s["fitness"]["effort"] + s["fitness"]["violations"])
+        valid_front = [s for s in front if analyzer.validate(s["genome"]).valid]
+        if not valid_front:
+            print("No valid layer-access solutions found in Pareto front")
+            for s in front[:5]:
+                validation = analyzer.validate(s["genome"])
+                print(f"  {s.get('id', '?')}: {'; '.join(validation.errors) or 'unknown'}")
+            raise ValueError("no valid layer-access solution")
+        skipped = len(front) - len(valid_front)
+        if skipped:
+            print(f"Skipped {skipped} invalid layer-access solution(s)")
+        solution = min(valid_front, key=lambda s: s["fitness"]["effort"] + s["fitness"]["violations"])
 
     genome = solution["genome"]
     sol_id = solution.get("id", f"sol_{sol_idx or 0}")

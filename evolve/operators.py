@@ -5,7 +5,7 @@ All operators are layer-aware, preserve structural positions, and protect key gr
 import random
 import copy
 from representation import (
-    Position, Shortcut, LAYER_APP_CONTEXT, LAYER_ACCESS,
+    Position, Shortcut, LAYER_ACCESS,
     build_layer_to_positions, is_structural,
     is_in_protected_group, find_group_members, KEY_GROUPS,
 )
@@ -173,11 +173,7 @@ def thumb_fill(genome, positions, shortcut_pool, layer_positions=None):
         if not empty_thumbs:
             continue
 
-        allowed_apps = set(LAYER_APP_CONTEXT.get(layer, []))
-        if not allowed_apps:
-            continue
-
-        candidates = [s for s in unassigned if (set(s.apps) if s.apps else {s.app}) & allowed_apps]
+        candidates = [s for s in unassigned if s.importance >= 3.0]
         if not candidates:
             continue
 
@@ -212,13 +208,24 @@ def migrate_shortcut(genome, positions, shortcut_pool, layer_positions=None, dyn
     else:
         shortcut = random.choice(unassigned)
 
-    # Try layers that match the shortcut's app context first
+    # Try all layers, preferring those with existing same-app shortcuts (emergent coherence)
     layer_order = list(layer_positions.keys())
     random.shuffle(layer_order)
     shortcut_apps = set(shortcut.apps) if shortcut.apps else {shortcut.app}
-    matching = [l for l in layer_order if shortcut_apps & set(LAYER_APP_CONTEXT.get(l, []))]
-    non_matching = [l for l in layer_order if l not in matching and LAYER_APP_CONTEXT.get(l) is None]
-    for layer in matching + non_matching:
+
+    def layer_affinity(layer):
+        score = 0
+        for p in layer_positions[layer]:
+            sid = genome[p.gene_idx]
+            if sid < 0 or sid >= len(shortcut_pool):
+                continue
+            other_apps = set(shortcut_pool[sid].apps) if shortcut_pool[sid].apps else {shortcut_pool[sid].app}
+            if shortcut_apps & other_apps:
+                score += 1
+        return score
+
+    layer_order.sort(key=lambda l: -layer_affinity(l))
+    for layer in layer_order:
         pos_list = layer_positions[layer]
         empty = [p for p in pos_list if genome[p.gene_idx] < 0 and p.gene_idx not in protected]
         if empty:
@@ -256,9 +263,7 @@ def deduplicate(genome, positions, shortcut_pool, layer_positions=None, dynamic_
         # 50% chance: fill with unassigned important shortcut
         if random.random() < 0.5:
             assigned_sids = set(s for s in genome if s >= 0)
-            allowed_apps = set(LAYER_APP_CONTEXT.get(layer, []))
-            candidates = [s for s in shortcut_pool if s.sid not in assigned_sids
-                         and (not allowed_apps or (set(s.apps) if s.apps else {s.app}) & allowed_apps)]
+            candidates = [s for s in shortcut_pool if s.sid not in assigned_sids]
             if candidates:
                 best = max(candidates, key=lambda s: s.importance)
                 genome[target.gene_idx] = best.sid
@@ -267,53 +272,58 @@ def deduplicate(genome, positions, shortcut_pool, layer_positions=None, dynamic_
     return genome
 
 
-def fix_context_violation(genome, positions, shortcut_pool, layer_positions=None, dynamic_groups=None):
-    """Move a shortcut that violates layer-app context to a correct layer."""
+def improve_coherence(genome, positions, shortcut_pool, layer_positions=None, dynamic_groups=None):
+    """Move a shortcut to a layer with more same-app shortcuts (emergent coherence)."""
     genome = copy.copy(genome)
     if layer_positions is None:
         layer_positions = build_layer_to_positions(positions)
     protected = _protected_gene_indices(genome, positions, shortcut_pool, dynamic_groups) if shortcut_pool else set()
 
-    # Find violations
-    violations = []
+    candidates = []
     for i, sid in enumerate(genome):
-        if sid < 0 or i in protected:
+        if sid < 0 or i in protected or sid >= len(shortcut_pool):
             continue
-        allowed = LAYER_APP_CONTEXT.get(positions[i].layer)
-        if allowed is None:
+        s = shortcut_pool[sid]
+        if s.category == "base_key":
             continue
-        s = shortcut_pool[sid] if sid < len(shortcut_pool) else None
-        if s is None:
-            continue
-        shortcut_apps = set(s.apps) if s.apps else {s.app}
-        if not shortcut_apps & set(allowed):
-            violations.append(i)
+        candidates.append(i)
 
-    if not violations:
+    if not candidates:
         return genome
 
-    # Pick a random violation and try to move it
-    src_idx = random.choice(violations)
+    src_idx = random.choice(candidates)
     sid = genome[src_idx]
     s = shortcut_pool[sid]
+    src_layer = positions[src_idx].layer
+    shortcut_apps = set(s.apps) if s.apps else {s.app}
 
-    # Find a layer that allows this app
-    shortcut_apps_fix = set(s.apps) if s.apps else {s.app}
+    # Count same-app shortcuts per layer
+    layer_affinity = {}
     for layer, pos_list in layer_positions.items():
-        allowed = set(LAYER_APP_CONTEXT.get(layer, []))
-        if allowed and not shortcut_apps_fix & allowed:
+        if layer == src_layer:
             continue
-        if not allowed:
-            continue
-        empty = [p for p in pos_list if genome[p.gene_idx] < 0 and p.gene_idx not in protected]
-        if empty:
-            target = min(empty, key=lambda p: p.effort)
-            genome[target.gene_idx] = sid
-            genome[src_idx] = -1
-            return genome
+        count = 0
+        for p in pos_list:
+            other = genome[p.gene_idx]
+            if other < 0 or other >= len(shortcut_pool):
+                continue
+            other_apps = set(shortcut_pool[other].apps) if shortcut_pool[other].apps else {shortcut_pool[other].app}
+            if shortcut_apps & other_apps:
+                count += 1
+        if count > 0:
+            layer_affinity[layer] = count
 
-    # Can't find a good layer — just remove the violation
-    genome[src_idx] = -1
+    if not layer_affinity:
+        return genome
+
+    best_layer = max(layer_affinity, key=layer_affinity.get)
+    empty = [p for p in layer_positions[best_layer]
+             if genome[p.gene_idx] < 0 and p.gene_idx not in protected]
+    if empty:
+        target = min(empty, key=lambda p: p.effort)
+        genome[target.gene_idx] = sid
+        genome[src_idx] = -1
+
     return genome
 
 
@@ -490,7 +500,7 @@ def custom_mutate(genome, positions, shortcut_pool, layer_positions=None, dynami
         if r < 0.40:
             return (migrate_shortcut(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
         elif r < 0.55:
-            return (fix_context_violation(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
+            return (improve_coherence(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
         elif r < 0.70:
             return (swap_within_layer(genome, positions, layer_positions, shortcut_pool, dynamic_groups),)
         elif r < 0.80:
@@ -499,9 +509,9 @@ def custom_mutate(genome, positions, shortcut_pool, layer_positions=None, dynami
             return (deduplicate(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
         else:
             return (move_group(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
-    if r < 0.10:
+    if r < 0.08:
         return (swap_within_layer(genome, positions, layer_positions, shortcut_pool, dynamic_groups),)
-    elif r < 0.17:
+    elif r < 0.14:
         return (swap_to_empty(genome, positions, layer_positions, shortcut_pool, dynamic_groups),)
     elif r < 0.35:
         return (migrate_shortcut(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
@@ -509,13 +519,13 @@ def custom_mutate(genome, positions, shortcut_pool, layer_positions=None, dynami
         return (move_group(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
     elif r < 0.48:
         return (thumb_fill(genome, positions, shortcut_pool, layer_positions),)
-    elif r < 0.66:
+    elif r < 0.60:
         return (deduplicate(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
+    elif r < 0.70:
+        return (improve_coherence(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
     elif r < 0.76:
-        return (fix_context_violation(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
-    elif r < 0.80:
         return (swap_layer_content(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
-    elif r < 0.86:
+    elif r < 0.84:
         return (redistribute_shortcuts(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
     else:
         return (cross_layer_deduplicate(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)

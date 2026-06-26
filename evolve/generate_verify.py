@@ -17,6 +17,7 @@ from representation import (
     LAYER_NAMES, KNOWN_KEY_NAMES,
 )
 from export_zmk import export_genome_to_zmk, shortcut_to_zmk_binding, MOD_MAP
+from layer_access import LayerAccessAnalyzer
 
 
 def build_expected_csv(changes, canonical):
@@ -89,13 +90,15 @@ def rows_to_csv_string(rows):
     return output.getvalue()
 
 
-def generate_verify_script(changes, canonical, version="evolved"):
+def generate_verify_script(changes, canonical, version="evolved", access_report=None):
     """Generate a self-contained verify script."""
     rows = build_expected_csv(changes, canonical)
     csv_string = rows_to_csv_string(rows)
 
     # Only verify the layers we changed
     changed_layers = sorted(set(c["layer"] for c in changes))
+    access_report = access_report or {"valid": True, "reachable_layers": [], "required_layers": [], "access_cost": 0}
+    access_report_json = json.dumps(access_report, indent=2)
 
     verify_logic = _fallback_verify(changes, changed_layers)
 
@@ -104,6 +107,8 @@ Charybdis optimizer layout VERIFY — {version}
 Verifies {len(changes)} evolved changes across layers {changed_layers}.
 Paste in ZMK Studio console AFTER applying. Does not edit or save.
 */
+
+window.CHARYBDIS_LAYER_ACCESS_REPORT = {access_report_json};
 
 {verify_logic}
 """
@@ -120,6 +125,7 @@ def _fallback_verify(changes, changed_layers):
 
   const expected = {changes_json};
   const layers = {json.dumps(changed_layers)};
+  const accessReport = window.CHARYBDIS_LAYER_ACCESS_REPORT || {{}};
 
   // --- Layer selection (mirrors apply script) ---
 
@@ -281,6 +287,13 @@ def _fallback_verify(changes, changed_layers):
   }}
 
   console.log("\\n" + "=".repeat(50));
+  console.log("LAYER ACCESS");
+  console.log("Valid expected graph: " + (accessReport.valid ? "YES" : "NO"));
+  if (accessReport.required_layers) console.log("Required layers: " + accessReport.required_layers.join(", "));
+  if (accessReport.reachable_layers) console.log("Reachable layers: " + accessReport.reachable_layers.join(", "));
+  if (accessReport.access_cost !== undefined) console.log("Total access cost: " + accessReport.access_cost);
+  if (accessReport.errors && accessReport.errors.length) console.error("Access errors: " + accessReport.errors.join("; "));
+  console.log("-".repeat(50));
   if (failed === 0) {{
     console.log("PASSED: All " + passed + " keys verified correctly." + (skipped ? " (" + skipped + " firmware-only keys skipped)" : ""));
   }} else {{
@@ -304,6 +317,7 @@ def main():
     build_dir = sys.argv[1]
 
     canonical = json.load(open(os.path.join(build_dir, "canonical.json"), encoding="utf-8"))
+    scores = json.load(open(os.path.join(build_dir, "app_shortcut_scores.json"), encoding="utf-8"))
 
     # Read the evolved apply script to extract changes
     apply_path = os.path.join(build_dir, "evolved_apply.js")
@@ -316,13 +330,27 @@ def main():
         print("No keys found in evolved_apply.js")
         sys.exit(1)
 
-    # Find the matching closing bracket
+    # Find the matching closing bracket (string-aware)
     bracket_start = content.index('[', start)
     depth = 0
+    in_string = False
+    bracket_end = len(content)
     for i in range(bracket_start, len(content)):
-        if content[i] == '[':
+        ch = content[i]
+        if ch == '"':
+            backslashes = 0
+            j = i - 1
+            while j >= 0 and content[j] == '\\':
+                backslashes += 1
+                j -= 1
+            if backslashes % 2 == 0:
+                in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == '[':
             depth += 1
-        elif content[i] == ']':
+        elif ch == ']':
             depth -= 1
             if depth == 0:
                 bracket_end = i + 1
@@ -331,7 +359,53 @@ def main():
     changes = json.loads(content[bracket_start:bracket_end])
     print(f"Loaded {len(changes)} changes from evolved_apply.js")
 
-    script = generate_verify_script(changes, canonical, version="research-v1")
+    positions = build_position_index(canonical, {7})
+    pool = build_shortcut_pool(scores, canonical)
+    genome = encode_current_layout(canonical, positions, pool)
+    key_to_idx = {(p.layer, p.x, p.y): i for i, p in enumerate(positions)}
+    binding_to_sid = {}
+    for shortcut in pool:
+        binding = shortcut_to_zmk_binding(shortcut)
+        if not binding:
+            continue
+        key = (
+            binding.get("behavior", ""),
+            binding.get("parameter", ""),
+            tuple(sorted(binding.get("modifiers", []))),
+        )
+        binding_to_sid.setdefault(key, shortcut.sid)
+
+    for c in changes:
+        idx = key_to_idx.get((c["layer"], c["x"], c["y"]))
+        if idx is None:
+            continue
+        if c["behavior"] == "Transparent":
+            genome[idx] = -1
+            continue
+        key = (
+            c.get("behavior", ""),
+            c.get("parameter", ""),
+            tuple(sorted(c.get("modifiers", []))),
+        )
+        sid = binding_to_sid.get(key)
+        if sid is not None:
+            genome[idx] = sid
+
+    access_validation = LayerAccessAnalyzer(canonical, positions, pool).validate(genome)
+    access_report = {
+        "valid": access_validation.valid,
+        "required_layers": sorted(access_validation.required_layers),
+        "reachable_layers": sorted(access_validation.reachable_layers),
+        "access_cost": round(access_validation.total_access_cost, 2),
+        "errors": access_validation.errors,
+    }
+    if not access_validation.valid:
+        print("Layer access validation failed; refusing to generate verifier:")
+        for err in access_validation.errors:
+            print(f"  - {err}")
+        sys.exit(1)
+
+    script = generate_verify_script(changes, canonical, version="research-v1", access_report=access_report)
     out_path = os.path.join(build_dir, "evolved_verify.js")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(script)

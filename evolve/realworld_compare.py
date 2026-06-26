@@ -10,7 +10,7 @@ from collections import defaultdict
 sys.path.insert(0, os.path.dirname(__file__))
 from representation import (
     build_position_index, build_shortcut_pool, encode_current_layout,
-    decode_genome, LAYER_NAMES, LAYER_ACCESS, LAYER_APP_CONTEXT,
+    decode_genome, LAYER_NAMES, LAYER_ACCESS,
 )
 
 # ── Real-world scenarios ──────────────────────────────────────────────
@@ -216,26 +216,12 @@ def find_best_assignment(index, keys, app_hint):
     # Try exact app match first
     candidates = index.get((keys, app_hint), [])
 
-    # Check which layers are valid for this app
-    valid_layers = set()
-    for layer, apps in LAYER_APP_CONTEXT.items():
-        if app_hint in apps:
-            valid_layers.add(layer)
-
-    # Prefer candidates on valid layers
-    on_layer = [c for c in candidates if c["layer"] in valid_layers]
-    if on_layer:
-        return min(on_layer, key=lambda c: c["effort"]), True, True
-
-    # Any layer with this app's shortcut
+    # Prefer candidates on lowest-effort position
     if candidates:
-        return min(candidates, key=lambda c: c["effort"]), True, False
+        return min(candidates, key=lambda c: c["effort"]), True, True
 
     # Fallback: any occurrence of this key combo
     fallback = index.get((keys, "*"), [])
-    on_layer_fb = [c for c in fallback if c["layer"] in valid_layers]
-    if on_layer_fb:
-        return min(on_layer_fb, key=lambda c: c["effort"]), True, True
     if fallback:
         return min(fallback, key=lambda c: c["effort"]), True, False
 

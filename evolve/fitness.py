@@ -13,18 +13,21 @@ except ImportError:
     HAS_TORCH = False
 
 from representation import (
-    Position, Shortcut, LAYER_APP_CONTEXT, KEY_GROUPS,
+    Position, Shortcut, KEY_GROUPS,
     FINGER_MAP, THUMB_HAND, LEFT_COLS, RIGHT_COLS,
     KNOWN_KEY_NAMES, LAYER_ACCESS, build_layer_to_positions,
     discover_dynamic_groups, is_universal_shortcut,
 )
+from layer_access import HARD_INVALID_FITNESS, LayerAccessAnalyzer
 
 
 class FitnessEvaluator:
     def __init__(self, positions, shortcut_pool, config, usage_stats=None,
-                 conjunction_pairs=None, device="cpu", current_genome=None):
+                 conjunction_pairs=None, device="cpu", current_genome=None,
+                 canonical=None):
         self.positions = positions
         self.pool = shortcut_pool
+        self.canonical = canonical
         self.config = config
         self.weights = config.get("weights", {})
         self.usage_stats = usage_stats or {}
@@ -34,6 +37,7 @@ class FitnessEvaluator:
         self.n_shortcuts = len(shortcut_pool)
         self.layer_positions = build_layer_to_positions(positions)
         self.current_genome = np.array(current_genome, dtype=np.int32) if current_genome is not None else None
+        self.access_analyzer = LayerAccessAnalyzer(canonical, positions, shortcut_pool) if canonical else None
 
         self.dynamic_groups = discover_dynamic_groups(
             self.conjunction_pairs, self.usage_stats, self.pool, threshold=0.3
@@ -155,6 +159,7 @@ class FitnessEvaluator:
         self._build_l0_only_base_keys()
         self._build_app_coherence_data()
         self._build_mouse_accessibility_data()
+        self._build_layer_demand()
 
     def _build_layer_switch_costs(self):
         unique_layers = sorted(set(p.layer for p in self.positions))
@@ -330,6 +335,88 @@ class FitnessEvaluator:
             if p.layer == 2 and p.hand == "left" and p.effort <= 3:
                 self.l2_left_low_effort.append(i)
 
+    def _build_layer_demand(self):
+        """Compute demand per layer dynamically from usage data.
+
+        NOT hardcoded to layer-app mappings. Layer demand comes from:
+        1. layer_sessions: how often the user actually activates each layer
+        2. shortcut usage: aggregate importance * usage_boost of shortcuts
+           actually placed on each layer (computed per-genome in _layer_demand_penalty)
+        3. app_time_seconds: mapped to app IDs for per-shortcut weighting
+
+        This builds the app_demand lookup; per-layer demand is computed dynamically
+        from the genome in _layer_demand_for_genome()."""
+        PROCESS_TO_APP = {
+            "claude.exe": "browser",
+            "msedge.exe": "browser",
+            "chrome.exe": "browser",
+            "firefox.exe": "browser",
+            "code.exe": "vscode",
+            "windowsterminal.exe": "terminal",
+            "explorer.exe": "explorer",
+            "searchhost.exe": "windows",
+            "taskmgr.exe": "windows",
+            "teams.exe": "teams",
+            "msteams.exe": "teams",
+            "outlook.exe": "outlook",
+            "excel.exe": "excel",
+            "winword.exe": "word",
+            "powerpnt.exe": "powerpoint",
+            "discord.exe": "discord",
+        }
+
+        app_time = self.usage_stats.get("app_time_seconds", {})
+        self.app_demand = {}
+        for proc, secs in app_time.items():
+            app_id = PROCESS_TO_APP.get(proc.lower(), proc.lower().replace(".exe", ""))
+            self.app_demand[app_id] = self.app_demand.get(app_id, 0.0) + secs
+        total_time = sum(self.app_demand.values()) or 1.0
+        self.app_demand_frac = {app: t / total_time for app, t in self.app_demand.items()}
+
+        self.layer_session_counts = {}
+        layer_sessions = self.usage_stats.get("layer_sessions", {})
+        session_total = sum(ls.get("count", 0) for ls in layer_sessions.values()) or 1.0
+        for layer_str, ls in layer_sessions.items():
+            self.layer_session_counts[int(layer_str)] = ls.get("count", 0) / session_total
+
+        # Precompute per-shortcut app demand weight
+        self.shortcut_app_demand = np.zeros(self.n_shortcuts + 1, dtype=np.float32)
+        for s in self.pool:
+            apps = set(s.apps) if s.apps else {s.app}
+            demand = sum(self.app_demand_frac.get(a, 0.0) for a in apps)
+            self.shortcut_app_demand[s.sid] = demand
+
+        # Placeholder: _layer_demand_for_genome computes per-genome
+        self.layer_demand = {}
+
+    def _layer_demand_for_genome(self, genome):
+        """Compute per-layer demand from a specific genome's shortcut placement.
+
+        Each layer's demand = sum of (importance * usage_boost * app_demand)
+        for all shortcuts placed on it, normalized. Layers with many important,
+        frequently-used, high-app-demand shortcuts get high demand."""
+        layer_scores = {}
+        for i, sid in enumerate(genome):
+            if sid < 0:
+                continue
+            layer = self.positions[i].layer
+            if layer == 0:
+                continue
+            score = (self.importance_arr[sid] *
+                     self.usage_boost[sid] *
+                     max(self.shortcut_app_demand[sid], 0.1))
+            layer_scores[layer] = layer_scores.get(layer, 0.0) + score
+
+        # Add session-based demand (what the user actually uses)
+        for layer, session_frac in self.layer_session_counts.items():
+            layer_scores[layer] = layer_scores.get(layer, 0.0) + session_frac * 50.0
+
+        # Normalize to 0-1 range
+        max_score = max(layer_scores.values()) if layer_scores else 1.0
+        if max_score <= 0:
+            max_score = 1.0
+        return {layer: score / max_score for layer, score in layer_scores.items()}
+
     def _build_thumb_busy_penalty(self):
         """Extra effort for thumb-cluster keys on momentary layers where the
         same-hand thumb is busy holding the layer key.
@@ -395,17 +482,12 @@ class FitnessEvaluator:
 
     def _build_original_dupe_exempt(self):
         """Track same-layer (layer, sid) pairs that are intentionally duplicated.
-        Mouse buttons on L2 and structural keys (coach_base, coach_recover_base)
-        are intentionally duplicated across hands on each layer."""
+        The reference genome is the baseline for normal and scratch runs, so
+        duplicates already present there should not make the seed look broken.
+        Only duplicates introduced beyond this baseline are violations."""
         self.original_layer_sid_counts = {}
         if self.current_genome is not None:
             from collections import Counter
-            exempt_sids = set()
-            for s in self.pool:
-                if 'select:mb' in s.keys:
-                    exempt_sids.add(s.sid)
-                if s.keys in ('_base_coach_base', '_base_coach_recover_base'):
-                    exempt_sids.add(s.sid)
             for layer in set(p.layer for p in self.positions):
                 layer_sids = []
                 for i, sid in enumerate(self.current_genome):
@@ -413,7 +495,7 @@ class FitnessEvaluator:
                         layer_sids.append(int(sid))
                 counts = Counter(layer_sids)
                 for sid, cnt in counts.items():
-                    if cnt > 1 and sid in exempt_sids:
+                    if cnt > 1:
                         self.original_layer_sid_counts[(layer, sid)] = cnt
 
     def _build_l2_mouse_protection(self):
@@ -593,6 +675,7 @@ class FitnessEvaluator:
         # Layer switch cost matrix and layer utilization
         self.t_layer_switch_cost = torch.tensor(self.layer_switch_cost_matrix, device=d)
         self.t_layer_util = torch.tensor(self.layer_util_arr, device=d)
+        self.t_layer_usage_mult = torch.tensor(self.layer_usage_mult, device=d)
 
         # Conjunction pair tensors
         if len(self.conj_pairs) > 0:
@@ -630,24 +713,34 @@ class FitnessEvaluator:
         for (layer, sid), cnt in self.original_layer_sid_counts.items():
             self.t_original_dupe_counts[(layer, sid)] = cnt
 
-        # Precompute group SIDs for GPU group-split checking
+        # Precompute group SIDs for GPU group-split and placement checking
         self._gpu_group_sids = []
-        for group in KEY_GROUPS:
+        for group in list(KEY_GROUPS) + self.dynamic_groups:
             if "behaviors" in group:
                 continue
-            params = [p.upper() for p in group.get("params", [])]
-            mods_req = group.get("mods_required", "")
-            group_sids = []
-            for s in self.pool:
-                if s.base_key.upper() not in params:
-                    continue
-                if mods_req and not any(mods_req.lower() in m.lower() for m in s.modifiers):
-                    continue
-                group_sids.append(s.sid)
+            if group.get("dynamic", False):
+                group_sids = list(group.get("sids", []))
+                expected_size = len(group_sids)
+            else:
+                params = [p.upper() for p in group.get("params", [])]
+                mods_req = group.get("mods_required", "")
+                group_sids = []
+                for s in self.pool:
+                    if s.base_key.upper() not in params:
+                        continue
+                    if mods_req and not any(mods_req.lower() in m.lower() for m in s.modifiers):
+                        continue
+                    group_sids.append(s.sid)
+                expected_size = len(group.get("params", []))
             if len(group_sids) >= 2:
                 is_spatial = group.get("name", "") in ("arrows",)
                 self._gpu_group_sids.append(
-                    (torch.tensor(group_sids, device=d, dtype=torch.long), is_spatial)
+                    (
+                        torch.tensor(group_sids, device=d, dtype=torch.long),
+                        is_spatial,
+                        float(group.get("weight", 1.0)),
+                        float(expected_size),
+                    )
                 )
 
     @torch.no_grad()
@@ -731,7 +824,7 @@ class FitnessEvaluator:
             cur_sids_e = cur_t_e.clone()
             cur_sids_e[cur_sids_e < 0] = S
             cur_imp_e = self.t_importance[cur_sids_e]
-            unassign_effort += (removed_e.float() * (3.0 + cur_imp_e.unsqueeze(0).pow(2) * 1.5)).sum(dim=1)
+            unassign_effort += (removed_e.float() * (2.0 + cur_imp_e.unsqueeze(0).pow(2) * 1.0)).sum(dim=1)
 
         # Learning curve: penalize changes from current layout
         lc = torch.zeros(B, device=d)
@@ -787,7 +880,9 @@ class FitnessEvaluator:
         lc *= self.weights.get("learning_curve", 0.5)
 
         # Placement reward: placing important shortcuts reduces net effort
-        placement_reward = (imp * assigned_f * 8.0).sum(dim=1)
+        layer_for_pos = self.t_layer.unsqueeze(0).expand(B, -1)
+        layer_usage_for_pos = self.t_layer_usage_mult[t_g, layer_for_pos]
+        placement_reward = (imp * assigned_f * 8.0 * layer_usage_for_pos).sum(dim=1)
         effort_total = effort_raw + finger_balance + sfp + unassign_effort + lc - placement_reward
 
         # ── ADJACENCY ──
@@ -924,10 +1019,31 @@ class FitnessEvaluator:
                 clip_mask = (t_g == clip_sids[0]) & assigned & is_l2 & is_left
                 ma_bonus += clip_mask.any(dim=1).float() * 6.0
 
+        # Group placement reward: GPU approximation of _group_placement_score.
+        gp_bonus = torch.zeros(B, device=d)
+        if hasattr(self, '_gpu_group_sids') and self._gpu_group_sids:
+            for group_t, _is_spatial, _group_weight, _expected_size in self._gpu_group_sids:
+                member_mask = torch.zeros(B, N, device=d, dtype=torch.bool)
+                for gs in group_t:
+                    member_mask |= (t_g == gs.item())
+                member_count = member_mask.sum(dim=1).float()
+                enough = member_count >= 2
+                if not enough.any():
+                    continue
+                effort_sum = (member_mask.float() * self.t_effort.unsqueeze(0)).sum(dim=1)
+                avg_effort = effort_sum / member_count.clamp(min=1)
+                masked_imp = torch.where(member_mask, imp, torch.zeros_like(imp))
+                max_imp = masked_imp.max(dim=1).values
+                masked_usage = torch.where(member_mask, usage, torch.zeros_like(usage))
+                max_usage = masked_usage.max(dim=1).values
+                effort_quality = (1.0 - avg_effort / 8.0).clamp(min=0)
+                gp_bonus += torch.where(enough, effort_quality * max_imp * max_usage * member_count, torch.zeros_like(gp_bonus))
+
         adj_total = adj_scores * self.weights.get("adjacency", 1.5) + \
                     thumb_util * self.weights.get("thumb_utilization", 3.0) + \
                     cl_bonus * self.weights.get("cross_layer_consistency", 2.0) + \
                     tb_bonus * self.weights.get("trackball_proximity", 1.5) + \
+                    gp_bonus * self.weights.get("group_placement", 2.0) + \
                     ac_bonus * self.weights.get("app_coherence", 3.0) + \
                     ma_bonus * self.weights.get("mouse_accessibility", 5.0)
 
@@ -980,17 +1096,19 @@ class FitnessEvaluator:
         # Group-split violations: spatial split + group integrity (partial groups)
         group_split_viol = torch.zeros(B, device=d)
         if hasattr(self, '_gpu_group_sids') and self._gpu_group_sids:
-            for group_t, is_spatial in self._gpu_group_sids:
-                expected_size = float(len(group_t))
+            for group_t, is_spatial, group_weight, expected_size in self._gpu_group_sids:
                 member_mask = torch.zeros(B, N, device=d, dtype=torch.bool)
                 for gs in group_t:
                     member_mask |= (t_g == gs.item())
                 member_count = member_mask.sum(dim=1).float()
+                masked_imp = torch.where(member_mask, imp, torch.zeros_like(imp))
+                max_imp = masked_imp.max(dim=1).values
+                imp_scale = torch.maximum(torch.ones_like(max_imp), max_imp / 3.0)
                 if is_spatial:
                     left_members = (member_mask & (self.t_hand.unsqueeze(0) == 0)).sum(dim=1).float()
                     right_members = member_count - left_members
                     both_hands = (left_members > 0) & (right_members > 0)
-                    group_split_viol += both_hands.float() * member_count * 5.0
+                    group_split_viol += both_hands.float() * member_count * 5.0 * group_weight * imp_scale
                 # Group integrity: find best layer cluster, penalize missing members
                 best_layer_count = torch.zeros(B, device=d)
                 for layer_id in self.unique_layers:
@@ -998,18 +1116,25 @@ class FitnessEvaluator:
                     layer_count = lm.sum(dim=1).float()
                     best_layer_count = torch.maximum(best_layer_count, layer_count)
                     has_group = (layer_count >= 2).float()
-                    group_split_viol += has_group * 0.5
+                    group_split_viol += has_group * 0.5 * group_weight
                 # Partial group penalty: quadratic for missing members
                 missing = (expected_size - best_layer_count).clamp(min=0)
-                group_split_viol += missing * missing * 5.0
+                has_partial_group = member_count >= 2
+                group_split_viol += has_partial_group.float() * missing * missing * 5.0 * group_weight * imp_scale
                 # Completeness bonus: all members on same layer
                 complete = (best_layer_count >= expected_size).float()
-                group_split_viol -= complete * expected_size * 3.0
+                group_split_viol -= complete * expected_size * 3.0 * group_weight
 
         # Missing important shortcuts penalty — all pool shortcuts on mutable layers
-        high_imp_sids = [s.sid for s in self.pool if s.importance >= 3.0]
+        very_high_imp_sids = [s.sid for s in self.pool if s.importance >= 9.0]
+        high_imp_sids = [s.sid for s in self.pool if 3.0 <= s.importance < 9.0]
         med_imp_sids = [s.sid for s in self.pool if 1.0 <= s.importance < 3.0]
         missing_viol = torch.zeros(B, device=d)
+        if very_high_imp_sids:
+            vh_t = torch.tensor(very_high_imp_sids, device=d, dtype=torch.long)
+            vh_imp = self.t_importance[vh_t]
+            present_vh = (t_g.unsqueeze(2) == vh_t.unsqueeze(0).unsqueeze(0)).any(dim=1)
+            missing_viol += ((~present_vh).float() * (vh_imp * vh_imp).unsqueeze(0) * 2.0).sum(dim=1)
         if high_imp_sids:
             hi_t = torch.tensor(high_imp_sids, device=d, dtype=torch.long)
             hi_imp = self.t_importance[hi_t]
@@ -1089,10 +1214,18 @@ class FitnessEvaluator:
         l0_displace_viol = (displaced * (50.0 + imp * 2.0)).sum(dim=1)
         viol_total += l0_displace_viol * self.weights.get("violations", 10.0)
 
-        # Return as list of tuples
         e = effort_total.cpu().numpy()
         a = adj_total.cpu().numpy()
         v = viol_total.cpu().numpy()
+        if self.access_analyzer:
+            for i, genome in enumerate(genomes_list):
+                validation = self.access_analyzer.validate(genome)
+                if not validation.valid:
+                    e[i] = HARD_INVALID_FITNESS
+                    a[i] = 0.0
+                    v[i] = HARD_INVALID_FITNESS
+                else:
+                    e[i] += self._layer_access_effort_penalty(np.array(genome, dtype=np.int32), validation)
         return [(float(e[i]), float(-a[i]), float(v[i])) for i in range(B)]
 
     # =========================================================================
@@ -1101,6 +1234,9 @@ class FitnessEvaluator:
 
     def evaluate(self, genome):
         genome = np.array(genome, dtype=np.int32)
+        validation = self._layer_access_validation(genome)
+        if validation is not None and not validation.valid:
+            return (HARD_INVALID_FITNESS, 0.0, HARD_INVALID_FITNESS)
         obj1 = self._effort_score(genome)
         obj2 = self._adjacency_score(genome)
         obj3 = self._violation_score(genome)
@@ -1108,10 +1244,22 @@ class FitnessEvaluator:
 
     def evaluate_full(self, genome):
         genome = np.array(genome, dtype=np.int32)
+        validation = self._layer_access_validation(genome)
+        access_valid = validation.layer_access_valid if validation else 1.0
+        exit_valid = validation.layer_exit_valid if validation else 1.0
+        access_cost = validation.total_access_cost if validation else 0.0
         return {
             "effort": self._effort_score(genome),
             "adjacency": self._adjacency_score(genome),
             "violations": self._violation_score(genome),
+            "layer_access_valid": access_valid,
+            "layer_exit_valid": exit_valid,
+            "layer_access_cost": access_cost,
+            "layer_access_errors": "; ".join(validation.errors) if validation and validation.errors else "",
+            "layer_demand_penalty": self._layer_demand_penalty(genome, validation),
+            "layer_demand": dict(self.layer_demand) if hasattr(self, 'layer_demand') else {},
+            "per_layer_access_costs": dict(validation.access_costs) if validation else {},
+            "per_layer_depth": dict(self.access_analyzer.access_depth(genome)) if self.access_analyzer else {},
             "finger_balance": self._finger_balance(genome),
             "same_finger_penalty": self._same_finger_penalty(genome),
             "thumb_utilization": self._thumb_utilization(genome),
@@ -1126,7 +1274,65 @@ class FitnessEvaluator:
         genome = np.array(genome, dtype=np.int32)
         return (self._app_balance(genome), self._thumb_util_ratio(genome))
 
+    def _layer_demand_penalty(self, genome, validation=None):
+        """Penalize high-demand layers with expensive access.
+
+        Layer demand is computed dynamically from the genome: each layer's demand
+        = aggregate importance * usage * app_demand of shortcuts placed on it.
+        High-demand layers should have direct (depth=1) access from base.
+        Nested access (depth>=2) for high-demand layers is expensive.
+        Low-demand layers tolerate nesting."""
+        if not self.access_analyzer:
+            return 0.0
+        if validation is None:
+            validation = self.access_analyzer.validate(genome)
+        if not validation.valid:
+            return HARD_INVALID_FITNESS
+
+        layer_demand = self._layer_demand_for_genome(genome)
+        self.layer_demand = layer_demand  # cache for evaluate_full
+
+        depths = self.access_analyzer.access_depth(genome)
+        penalty = 0.0
+        for layer in validation.required_layers:
+            demand = layer_demand.get(layer, 0.0)
+            depth = depths.get(layer, 99)
+            access_cost = validation.access_costs.get(layer, HARD_INVALID_FITNESS)
+            if depth <= 1:
+                penalty += demand * access_cost * 0.5
+            elif depth == 2:
+                penalty += demand * access_cost * 3.0
+            else:
+                penalty += demand * access_cost * 10.0
+        return float(penalty * self.weights.get("layer_demand", 2.0))
+
+    def _layer_access_validation(self, genome):
+        if not self.access_analyzer:
+            return None
+        return self.access_analyzer.validate(genome)
+
+    def _layer_access_effort_penalty(self, genome, validation=None):
+        if not self.access_analyzer:
+            return 0.0
+        if validation is None:
+            validation = self.access_analyzer.validate(genome)
+        if not validation.valid:
+            return HARD_INVALID_FITNESS
+        penalty = 0.0
+        for i, sid in enumerate(genome):
+            if sid < 0:
+                continue
+            layer = self.positions[i].layer
+            access_cost = validation.access_costs.get(layer, HARD_INVALID_FITNESS)
+            if access_cost >= HARD_INVALID_FITNESS:
+                return HARD_INVALID_FITNESS
+            penalty += access_cost * self.importance_arr[sid] * self.usage_boost[sid]
+        return float(penalty * self.weights.get("layer_access_effort", 1.0))
+
     def _effort_score(self, genome):
+        validation = self._layer_access_validation(genome)
+        if validation is not None and not validation.valid:
+            return HARD_INVALID_FITNESS
         w = self.weights.get("effort", 1.0)
         mask = genome >= 0
         sids = np.clip(genome, 0, self.n_shortcuts)
@@ -1157,7 +1363,9 @@ class FitnessEvaluator:
                 layer = self.positions[i].layer
                 layer_mult = self.layer_usage_mult[sid, layer] if layer < self.layer_usage_mult.shape[1] else 1.0
                 placement_reward += self.importance_arr[sid] * 8.0 * layer_mult
-        return float(total * w + fb + sfp + lc + unassign_eff - placement_reward)
+        access_effort = self._layer_access_effort_penalty(genome, validation)
+        demand_penalty = self._layer_demand_penalty(genome, validation)
+        return float(total * w + access_effort + demand_penalty + fb + sfp + lc + unassign_eff - placement_reward)
 
     def _adjacency_score(self, genome):
         w = self.weights.get("adjacency", 1.5)
@@ -1197,6 +1405,9 @@ class FitnessEvaluator:
         return total * w + thumb_bonus + cl_bonus + tb_bonus + gp_bonus + ac_bonus + ma_bonus
 
     def _violation_score(self, genome):
+        validation = self._layer_access_validation(genome)
+        if validation is not None and not validation.valid:
+            return HARD_INVALID_FITNESS
         w = self.weights.get("violations", 10.0)
         total = 0.0
         total += self._layer_context_violations(genome) * w

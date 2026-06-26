@@ -110,6 +110,9 @@ BASE_KEY_IMPORTANCE = {
     "coach_travel_toggle": 8.0,
     "coach_travel_off": 6.0,
     "coach_recover_base": 6.0,
+    "momentary layer": 15.0,
+    "toggle layer": 15.0,
+    "to layer": 12.0,
     "bt_sel 0": 8.0,
     "bt_sel 1": 8.0,
     "bt_sel 2": 7.0,
@@ -403,7 +406,7 @@ def is_structural(binding, layer_num=None):
             return False  # empty slot on non-L0 layer, optimizer can fill it
         return True  # L0 or unknown layer: treat as structural
     if b in ("Momentary Layer", "Toggle Layer", "To Layer"):
-        return True
+        return False  # movable base keys — optimizer places them via importance scoring
     if any(kw in b.lower() for kw in ["studio unlock"]):
         return True
     return False
@@ -418,6 +421,10 @@ def get_base_key_id(binding):
 
     if b.lower() in COACH_BEHAVIORS:
         return b.lower(), BASE_KEY_IMPORTANCE.get(b.lower(), 5.0)
+
+    if b in ("Momentary Layer", "Toggle Layer", "To Layer"):
+        key_id = f"{b.lower().replace(' ', '_')}_{p}"
+        return key_id, BASE_KEY_IMPORTANCE.get(b.lower(), 15.0)
 
     if "mouse key press" in b.lower():
         return p, BASE_KEY_IMPORTANCE.get(p, 5.0)
@@ -495,6 +502,32 @@ _BARE_LETTER_KEYS = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ')
 _BARE_SYMBOL_KEYS = set('/?=')
 _MULTI_CHAR_BARE = {'gg', 'gi', 'yy', 'gs', 'ge', 'gE', 'yt', 'yf'}
 
+# Keys that don't exist in ZMK Studio combobox
+_UNAVAILABLE_KEYS = {'Pause', 'Break', 'ScrollLock', 'NumLock', 'CapsLock', 'Menu',
+                     'Sleep', 'Wake', 'Power'}
+
+# Shortcuts that can't be represented as a single ZMK Studio key press
+_UNSUPPORTED_SHORTCUTS = {
+    'Ctrl+K S', 'Ctrl+K Ctrl+F', 'Ctrl+K Ctrl+W', 'Ctrl+K Ctrl+S',
+    'Ctrl+K Ctrl+C', 'Ctrl+K Ctrl+U', 'Ctrl+K Ctrl+X', 'Ctrl+K Ctrl+O',
+    'Ctrl+K Ctrl+I', 'Ctrl+K Ctrl+T', 'Ctrl+K Ctrl+K',
+    'Win+Pause', 'Alt+Shift',
+    'Click', 'Alt+Click', 'Ctrl+Click', 'Shift+Click',
+}
+
+
+def split_shortcut_keys(key):
+    """Return (modifiers, base) for shortcut strings, including Ctrl++."""
+    if key.endswith("++"):
+        raw_parts = key[:-1].split("+")
+        base = "+"
+    else:
+        raw_parts = key.split("+")
+        base = raw_parts[-1] if raw_parts else ""
+
+    mods = [p for p in raw_parts[:-1] if p.lower() in ("ctrl", "shift", "alt", "win")]
+    return mods, base
+
 
 def _is_redundant_bare_key(key, mods):
     """Filter shortcuts that are just bare keystrokes already on L0.
@@ -509,20 +542,46 @@ def _is_redundant_bare_key(key, mods):
     return False
 
 
+def _is_unsupported_shortcut(key):
+    """Filter shortcuts that can't be represented as a single ZMK Studio binding."""
+    if key in _UNSUPPORTED_SHORTCUTS:
+        return True
+    # VS Code chords: Ctrl+K followed by another key combo
+    if key.startswith('Ctrl+K '):
+        return True
+    # Modifier-only combos (no base key)
+    mods, base = split_shortcut_keys(key)
+    if not base:
+        return True
+    # Base key contains a space and isn't a known multi-word key
+    _KNOWN_MULTIWORD = {'Page Up', 'Page Down', 'Print Screen', 'Left GUI',
+                        'Right GUI', 'Delete Forward', 'Return Enter'}
+    if ' ' in base and base not in _KNOWN_MULTIWORD:
+        return True
+    # Base key is an unavailable key
+    if base in _UNAVAILABLE_KEYS:
+        return True
+    return False
+
+
 def build_shortcut_pool(scores, canonical=None):
     """Build the shortcut pool from app scores, optionally adding base keys from canonical."""
     pool = []
     key_to_idx = {}
     sid = 0
     filtered_count = 0
+    unsupported_count = 0
     for app in scores["apps"]:
         app_id = app["id"]
         for s in app["shortcuts"]:
             key = s["keys"]
             imp = s.get("importance", 1.0)
-            mods = [k for k in key.split("+") if k.lower() in ("ctrl", "shift", "alt", "win")]
+            mods, base = split_shortcut_keys(key)
             if _is_redundant_bare_key(key, mods):
                 filtered_count += 1
+                continue
+            if _is_unsupported_shortcut(key):
+                unsupported_count += 1
                 continue
             if key in key_to_idx:
                 existing = pool[key_to_idx[key]]
@@ -533,7 +592,6 @@ def build_shortcut_pool(scores, canonical=None):
                     existing.app = app_id
                     existing.action = s.get("action", existing.action)
                 continue
-            base = key.split("+")[-1]
             pool.append(Shortcut(
                 sid=sid, keys=key, action=s.get("action", ""),
                 app=app_id, category=s.get("category", ""),
@@ -547,6 +605,8 @@ def build_shortcut_pool(scores, canonical=None):
 
     if filtered_count:
         print(f"  Filtered {filtered_count} redundant bare-key shortcuts (Vimium letters, symbols, multi-char)")
+    if unsupported_count:
+        print(f"  Filtered {unsupported_count} unsupported shortcuts (chords, modifier-only, unavailable keys)")
 
     if canonical:
         _add_base_keys_to_pool(pool, key_to_idx, canonical)
@@ -661,12 +721,24 @@ def encode_current_layout(canonical, positions, shortcut_pool):
 def build_scratch_genome(canonical, positions, shortcut_pool):
     """Build a genome with only physically locked L0 keys assigned.
     L0 non-thumb (y<4): letters, numbers, punctuation, modifiers — kept.
-    L0 thumb (y>=4) and all non-L0 positions: empty (-1)."""
+    Layer-access keys are also kept as a valid seed, but remain movable."""
     full_genome = encode_current_layout(canonical, positions, shortcut_pool)
     scratch = [-1] * len(positions)
+    access_keys = {
+        "_base_coach_l1_hold", "_base_coach_l2_hold",
+        "_base_coach_l3_hold", "_base_coach_l4_hold",
+        "_base_coach_mouse_lock", "_base_coach_game_lock",
+        "_base_coach_travel_toggle", "_base_coach_travel_off",
+        "_base_coach_base", "_base_coach_recover_base",
+    }
     for i, pos in enumerate(positions):
         if pos.layer == 0 and not pos.is_thumb and full_genome[i] >= 0:
             scratch[i] = full_genome[i]
+            continue
+        if full_genome[i] >= 0:
+            skey = shortcut_pool[full_genome[i]].keys
+            if skey in access_keys or skey.startswith(("_base_toggle_layer_", "_base_momentary_layer_", "_base_to_layer_")):
+                scratch[i] = full_genome[i]
     return scratch
 
 

@@ -1,406 +1,317 @@
-# Research layout - patched from gen 1000 candidate 19
-# 80 new shortcuts, 6 mouse/clipboard restored
+# Evolved layout diff — evo_best_gen150
+# Effort: 71489  Adj: 1349  Viol: 222516
 
-## Layer 1 (Nav) - 22 changes
-  (4,0): Key Press L Ctrl+L Shift+Keyboard Grave Accent and Tilde
-  (5,0): Key Press L Shift+Keyboard Click
-  (7,0): Key Press Keyboard F3
-  (8,0): Key Press L Ctrl+Keyboard Dash and Underscore
-  (9,0): Key Press L GUI+Keyboard A
-  (1,1): Key Press L Ctrl+Keyboard Tab
-  (8,1): Key Press Return Enter
-  (4,2): Key Press Spacebar
-  (5,2): Mouse Key Press select:mb1
-  (7,2): Key Press Left Bracket
-  (2,3): Key Press L Ctrl+L Shift+Keyboard I
-  (3,3): Key Press Equal and Plus
-  (4,3): Key Press L Ctrl+Keyboard Comma and LessThan
-  (8,3): Key Press 0 and Right Bracket
-  (9,3): Key Press L GUI+Keyboard S
-  (11,3): Key Press Keyboard F12
-  (3,4): Key Press L GUI+L Shift+Keyboard RightArrow
-  (4,4): Key Press L Ctrl+Keyboard Click
-  (7,4): Key Press Keyboard Escape
-  (8,4): Key Press L Ctrl+Keyboard W
-  (4,5): Key Press L Ctrl+L Shift+Keyboard J
-  (7,5): Key Press L Ctrl+Keyboard 5
+## Layer 1 (Nav) — 46 changes
+  (0,0) → Key Press L GUI+Keyboard B  [Optimizer (evo_best_gen150): Win+B (Focus system tray)]
+  (1,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (3,0) → Key Press L Ctrl+Keyboard 1 and Bang  [Optimizer (evo_best_gen150): Ctrl+1 (Activity)]
+  (4,0) → Key Press L GUI+Keyboard I  [Optimizer (evo_best_gen150): Win+I (Settings)]
+  (5,0) → Key Press L Ctrl+L Shift+Keyboard G  [Optimizer (evo_best_gen150): Ctrl+Shift+G (Source control panel)]
+  (7,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,0) → Key Press L Ctrl+Keyboard O  [Optimizer (evo_best_gen150): Ctrl+O (Open document)]
+  (9,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (10,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (11,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (12,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (1,1) → Key Press L Alt+Keyboard F12  [Optimizer (evo_best_gen150): Alt+F12 (Peek definition)]
+  (2,1) → Key Press L GUI+Keyboard Tab  [Optimizer (evo_best_gen150): Win+Tab (Task View)]
+  (3,1) → Key Press L Ctrl+L Shift+Keyboard W  [Optimizer (evo_best_gen150): Ctrl+Shift+W (Change workflow state)]
+  (4,1) → Key Press L Shift+L Alt+Keyboard RightArrow  [Optimizer (evo_best_gen150): Shift+Alt+Right (Expand selection)]
+  (7,1) → Key Press L Ctrl+L Shift+Keyboard E  [Optimizer (evo_best_gen150): Ctrl+Shift+E (Check in document)]
+  (8,1) → Key Press L Ctrl+L Shift+Keyboard H  [Optimizer (evo_best_gen150): Ctrl+Shift+H (Hang up / end call)]
+  (9,1) → Key Press L GUI+Keyboard R  [Optimizer (evo_best_gen150): Win+R (Run dialog)]
+  (10,1) → Key Press L Ctrl+L Shift+Keyboard C  [Optimizer (evo_best_gen150): Ctrl+Shift+C (Inspect element)]
+  (11,1) → Key Press L Ctrl+Keyboard UpArrow  [Optimizer (evo_best_gen150): Ctrl+Up (Jump to top edge of data)]
+  (12,1) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (0,2) → Key Press L Ctrl+Keyboard G  [Optimizer (evo_best_gen150): Ctrl+G (Go to line)]
+  (1,2) → Key Press Keyboard LeftArrow  [Optimizer (evo_best_gen150): _base_leftarrow_combo (Base key: LeftArrow)]
+  (2,2) → Key Press L Ctrl+L Shift+Keyboard U  [Optimizer (evo_best_gen150): Ctrl+Shift+U (Mark as unread)]
+  (5,2) → Key Press Keyboard F2  [Optimizer (evo_best_gen150): _base_f2 (Base key: F2)]
+  (11,2) → Key Press L Ctrl+Keyboard End  [Optimizer (evo_best_gen150): Ctrl+End (Go to last used cell)]
+  (12,2) → Key Press L GUI+Keyboard UpArrow  [Optimizer (evo_best_gen150): Win+Up (Maximize window)]
+  (0,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (1,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (2,3) → Key Press Keyboard F5  [Optimizer (evo_best_gen150): _base_f5 (Base key: F5)]
+  (3,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (4,3) → Key Press Keyboard UpArrow  [Optimizer (evo_best_gen150): Up (Edit last sent message)]
+  (5,3) → Key Press L Ctrl+L Shift+Keyboard A  [Optimizer (evo_best_gen150): Ctrl+Shift+A (Accept call)]
+  (8,3) → Key Press L Ctrl+Keyboard K  [Optimizer (evo_best_gen150): Ctrl+K (Insert link)]
+  (9,3) → coach_game_lock   [Optimizer (evo_best_gen150): _base_coach_game_lock (Base key: coach_game_lock)]
+  (10,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (11,3) → Key Press L Shift+L Alt+Keyboard DownArrow  [Optimizer (evo_best_gen150): Shift+Alt+Down (Copy line down)]
+  (12,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (3,4) → Key Press L GUI+Keyboard N  [Optimizer (evo_best_gen150): Win+N (Notification center)]
+  (4,4) → Key Press L Ctrl+Keyboard 2 and At  [Optimizer (evo_best_gen150): Ctrl+2 (Chat)]
+  (5,4) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (7,4) → Key Press Keyboard Comma and LessThan  [Optimizer (evo_best_gen150): _base_comma_combo (Base key: Comma and LessThan)]
+  (8,4) → Key Press L Ctrl+Keyboard P  [Optimizer (evo_best_gen150): Ctrl+P (Quick open file)]
+  (4,5) → Key Press L Ctrl+Keyboard DownArrow  [Optimizer (evo_best_gen150): Ctrl+Down (Jump to bottom edge of data)]
+  (5,5) → Key Press Keyboard PrintScreen and SysReq  [Optimizer (evo_best_gen150): _base_print screen_combo (Base key: Print Screen)]
+  (7,5) → Key Press Keyboard Left GUI  [Optimizer (evo_best_gen150): _base_left gui (Base key: Left GUI)]
 
-## Layer 2 (Mouse) - 34 changes
-  (1,0): Key Press L Ctrl+Keyboard 7
-  (3,0): Key Press Keyboard Delete
-  (4,0): Key Press Keyboard Escape
-  (7,0): Key Press R
-  (8,0): Key Press Period
-  (9,0): Key Press V
-  (11,0): Key Press U
-  (12,0): Key Press G
-  (0,1): Key Press L Ctrl+L Shift+Keyboard B
-  (1,1): Key Press L Alt+Keyboard F
-  (2,1): Key Press L GUI+Keyboard 1
-  (3,1): Key Press L Ctrl+Keyboard 3
-  (7,1): Key Press Q
-  (8,1): Key Press Z
-  (9,1): Key Press 2 and At
-  (10,1): Key Press S
-  (11,1): Key Press 5 and Percent
-  (12,1): Key Press L GUI+Keyboard RightArrow
-  (7,2): Key Press L
-  (9,2): Key Press P
-  (10,2): Key Press Spacebar
-  (11,2): Key Press N
-  (0,3): Key Press L Alt+Keyboard Equals and Plus
-  (2,3): Key Press L GUI+Keyboard H
-  (7,3): Key Press A
-  (8,3): Key Press 0 and Right Bracket
-  (9,3): Key Press L GUI+Keyboard I
-  (12,3): Key Press Return Enter
-  (3,4): Key Press L GUI+L Ctrl+Keyboard LeftArrow
-  (4,4): Key Press L GUI+Keyboard P
-  (5,4): Key Press L Ctrl+Keyboard 6
-  (7,4): Key Press Y
-  (8,4): Key Press F
-  (7,5): Key Press M
+## Layer 2 (Mouse) — 41 changes
+  (1,0) → Key Press Keyboard F9  [Optimizer (evo_best_gen150): _base_f9 (Base key: F9)]
+  (3,0) → Key Press Keyboard F10  [Optimizer (evo_best_gen150): _base_f10 (Base key: F10)]
+  (4,0) → Key Press L Ctrl+L Shift+Keyboard G  [Optimizer (evo_best_gen150): Ctrl+Shift+G (Source control panel)]
+  (7,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,0) → Key Press L Ctrl+Keyboard 2 and At  [Optimizer (evo_best_gen150): Ctrl+2 (Chat)]
+  (9,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (10,0) → Key Press L Ctrl+Keyboard F  [Optimizer (evo_best_gen150): Ctrl+F (Find)]
+  (11,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (12,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (0,1) → Key Press L GUI+Keyboard E  [Optimizer (evo_best_gen150): Win+E (File Explorer)]
+  (1,1) → Key Press L Ctrl+L Shift+Keyboard K  [Optimizer (evo_best_gen150): Ctrl+Shift+K (Delete line)]
+  (3,1) → Key Press Keyboard Return Enter  [Optimizer (evo_best_gen150): Enter (Send message)]
+  (4,1) → Key Press Keyboard F5  [Optimizer (evo_best_gen150): F5 (Refresh page)]
+  (9,1) → Key Press L Ctrl+Keyboard S  [Optimizer (evo_best_gen150): Ctrl+S (Save)]
+  (10,1) → Key Press Keyboard Dash and Underscore  [Optimizer (evo_best_gen150): _base_minus (Base key: Minus)]
+  (11,1) → Key Press Keyboard F6  [Optimizer (evo_best_gen150): _base_f6 (Base key: F6)]
+  (0,2) → Mouse Key Press MB4  [Optimizer (evo_best_gen150): _base_select:mb4 (Base key: select:MB4)]
+  (1,2) → Key Press L Ctrl+Keyboard H  [Optimizer (evo_best_gen150): Ctrl+H (Find and replace)]
+  (4,2) → Key Press L Ctrl+Keyboard I  [Optimizer (evo_best_gen150): Ctrl+I (Italic)]
+  (5,2) → Key Press L Ctrl+Keyboard 6 and Caret  [Optimizer (evo_best_gen150): Ctrl+6 (Files)]
+  (7,2) → Key Press L Ctrl+Keyboard C  [Optimizer (evo_best_gen150): Ctrl+C (Copy)]
+  (8,2) → Key Press Keyboard F4  [Optimizer (evo_best_gen150): _base_f4 (Base key: F4)]
+  (9,2) → coach_travel_toggle   [Optimizer (evo_best_gen150): _base_coach_travel_toggle (Base key: coach_travel_toggle)]
+  (10,2) → coach_base   [Optimizer (evo_best_gen150): _base_coach_base (Base key: coach_base)]
+  (11,2) → Key Press Keyboard F5  [Optimizer (evo_best_gen150): _base_f5 (Base key: F5)]
+  (0,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (1,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (2,3) → Key Press L Shift+L Alt+Keyboard A  [Optimizer (evo_best_gen150): Shift+Alt+A (Toggle block comment)]
+  (3,3) → Key Press L Ctrl+Keyboard G  [Optimizer (evo_best_gen150): Ctrl+G (Go to line)]
+  (4,3) → Key Press L Ctrl+L Shift+Keyboard E  [Optimizer (evo_best_gen150): Ctrl+Shift+E (Check in document)]
+  (7,3) → Key Press L Shift+L Alt+Keyboard DownArrow  [Optimizer (evo_best_gen150): Shift+Alt+Down (Copy line down)]
+  (8,3) → Key Press Keypad 9 and PageUp  [Optimizer (evo_best_gen150): _base_pageup (Base key: Keypad 9 and PageUp)]
+  (9,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (12,3) → Key Press L Ctrl+L Shift+Keyboard Return Enter  [Optimizer (evo_best_gen150): Ctrl+Shift+Enter (Insert line above)]
+  (3,4) → Key Press L Ctrl+Keyboard PageUp  [Optimizer (evo_best_gen150): Ctrl+Page Up (Previous sheet)]
+  (5,4) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (7,4) → Key Press Keyboard ForwardSlash and QuestionMark  [Optimizer (evo_best_gen150): _base_forwardslash_combo (Base key: ForwardSlash and QuestionMark)]
+  (8,4) → Key Press Keyboard Left Brace  [Optimizer (evo_best_gen150): _base_left brace_combo (Base key: Left Brace)]
+  (4,5) → Key Press L Ctrl+Keyboard Left Brace  [Optimizer (evo_best_gen150): Ctrl+[ (Outdent line)]
+  (5,5) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (7,5) → Key Press Keyboard Right Brace  [Optimizer (evo_best_gen150): _base_right brace_combo (Base key: Right Brace)]
 
-## Layer 3 (Window) - 48 changes
-  (0,0): Key Press L Ctrl+Keyboard P
-  (1,0): Bluetooth BT_SEL 1
-  (4,0): Key Press H
-  (5,0): Key Press R
-  (7,0): Key Press L GUI+Keyboard Period and GreaterThan
-  (8,0): Key Press Z
-  (10,0): Output Selection select:clear selected profile
-  (11,0): Key Press L Ctrl+Keyboard E
-  (12,0): Key Press L Alt+Keyboard D
-  (0,1): Key Press L Ctrl+Keyboard D
-  (1,1): Key Press LeftAlt
-  (3,1): Key Press Delete
-  (4,1): Key Press LeftControl
-  (7,1): Key Press Q
-  (8,1): Key Press Period
-  (10,1): Key Press S
-  (11,1): Key Press T
-  (0,2): Key Press Comma and LessThan
-  (1,2): Key Press LeftShift
-  (2,2): Key Press F
-  (3,2): Key Press E
-  (4,2): Key Press J
-  (5,2): Key Press O
-  (7,2): Key Press L
-  (8,2): Key Press A
-  (9,2): Mouse Key Press select:mb1
-  (10,2): Key Press SemiColon and Colon
-  (11,2): Key Press Return Enter
-  (12,2): Key Press B
-  (0,3): Key Press L Shift+Keyboard F11
-  (1,3): Key Press L GUI+Keyboard 1
-  (2,3): Key Press C
-  (3,3): Key Press Left Brace
-  (4,3): Key Press D
-  (5,3): Key Press Left Brace
-  (8,3): Key Press M
-  (9,3): Key Press Keyboard F10
-  (10,3): Key Press X
-  (11,3): Key Press G
-  (12,3): Key Press L Alt+Keyboard P
-  (3,4): Key Press Y
-  (4,4): Key Press L Alt+Keyboard F4
-  (5,4): Key Press L Alt+Keyboard Tab
-  (7,4): Key Press L GUI+Keyboard UpArrow
-  (8,4): Key Press L Alt+Keyboard Return Enter
-  (4,5): Key Press L GUI+Keyboard LeftArrow
-  (5,5): Key Press L GUI+Keyboard Tab
-  (7,5): Key Press L GUI+Keyboard X
+## Layer 3 (Window) — 36 changes
+  (0,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (1,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (2,0) → Key Press Keyboard Equals and Plus  [Optimizer (evo_best_gen150): _base_equal (Base key: Equal and Plus)]
+  (8,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (9,0) → Key Press L Ctrl+Keyboard P  [Optimizer (evo_best_gen150): Ctrl+P (Quick open file)]
+  (10,0) → Output Selection Ble Output  [Optimizer (evo_best_gen150): _base_select:ble output (Base key: select:BLE Output)]
+  (11,0) → Key Press Keyboard 9 and Left Bracket  [Optimizer (evo_best_gen150): _base_left bracket_combo (Base key: 9 and Left Bracket)]
+  (12,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (0,1) → Bluetooth BT_SEL 1  [Optimizer (evo_best_gen150): _base_bt_sel 1 (Base key: BT_SEL 1)]
+  (1,1) → Key Press Keyboard F17  [Optimizer (evo_best_gen150): _base_f17 (Base key: F17)]
+  (2,1) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (4,1) → Key Press L GUI+Keyboard M  [Optimizer (evo_best_gen150): Win+M (Minimize all windows)]
+  (8,1) → Key Press L Ctrl+L Shift+Keyboard V  [Optimizer (evo_best_gen150): Ctrl+Shift+V (Paste without formatting)]
+  (9,1) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (10,1) → Key Press Keyboard F16  [Optimizer (evo_best_gen150): _base_f16 (Base key: F16)]
+  (11,1) → Key Press L Ctrl+L Shift+Keyboard K  [Optimizer (evo_best_gen150): Ctrl+Shift+K (Delete line)]
+  (12,1) → Key Press L Shift+Keyboard F8  [Optimizer (evo_best_gen150): Shift+F8 (Go to previous problem)]
+  (0,2) → Key Press L Ctrl+Keyboard U  [Optimizer (evo_best_gen150): Ctrl+U (Mark as unread)]
+  (1,2) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (2,2) → Key Press L Ctrl+Keyboard G  [Optimizer (evo_best_gen150): Ctrl+G (Go to line)]
+  (8,2) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (9,2) → Key Press L Ctrl+Keyboard ForwardSlash and QuestionMark  [Optimizer (evo_best_gen150): Ctrl+/ (Toggle line comment)]
+  (10,2) → Output Selection Toggle Outputs  [Optimizer (evo_best_gen150): _base_select:toggle outputs (Base key: select:Toggle Outputs)]
+  (11,2) → Key Press L Ctrl+L Shift+Keyboard H  [Optimizer (evo_best_gen150): Ctrl+Shift+H (Hang up / end call)]
+  (12,2) → Key Press L Ctrl+L Shift+Keyboard E  [Optimizer (evo_best_gen150): Ctrl+Shift+E (Check in document)]
+  (0,3) → Key Press L Ctrl+Keyboard O  [Optimizer (evo_best_gen150): Ctrl+O (Open document)]
+  (1,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (2,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (5,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,3) → Key Press L Ctrl+Keyboard Y  [Optimizer (evo_best_gen150): Ctrl+Y (Redo (alt))]
+  (9,3) → Bluetooth BT_SEL 3  [Optimizer (evo_best_gen150): _base_bt_sel 3 (Base key: BT_SEL 3)]
+  (10,3) → Key Press L Ctrl+Keyboard R  [Optimizer (evo_best_gen150): Ctrl+R (Reply)]
+  (11,3) → Key Press L Ctrl+Keyboard Tab  [Optimizer (evo_best_gen150): Ctrl+Tab (Next tab)]
+  (12,3) → Key Press L Ctrl+L Shift+Keyboard N  [Optimizer (evo_best_gen150): Ctrl+Shift+N (New folder)]
+  (3,4) → Key Press Keypad 3 and PageDn  [Optimizer (evo_best_gen150): _base_keypad 3 (Base key: Keypad 3 and PageDn)]
+  (4,5) → Key Press L GUI+Keyboard LeftArrow  [Optimizer (evo_best_gen150): Win+Left (Snap window left)]
 
-## Layer 4 (System) - 41 changes
-  (0,0): Key Press SemiColon and Colon
-  (1,0): Key Press L Shift+Keyboard F3
-  (2,0): Key Press B
-  (3,0): Key Press F24
-  (5,0): Key Press L Ctrl+Keyboard 4
-  (7,0): Key Press L Ctrl+Keyboard J
-  (8,0): Key Press Y
-  (9,0): Output Selection select:usb output
-  (11,0): Key Press L Ctrl+Keyboard O
-  (12,0): Key Press L Ctrl+L Shift+Keyboard E
-  (0,1): Key Press L GUI+L Shift+Keyboard S
-  (1,1): Key Press L Ctrl+Keyboard RightArrow
-  (2,1): Key Press F14
-  (4,1): Key Press N
-  (7,1): Key Press T
-  (8,1): Key Press H
-  (9,1): Key Press ForwardSlash and QuestionMark
-  (0,2): Key Press L Ctrl+Keyboard ForwardSlash and QuestionMark
-  (1,2): Bluetooth BT_SEL 0
-  (2,2): Key Press R
-  (4,2): Mouse Key Press select:mb1
-  (7,2): Key Press I
-  (8,2): Key Press A
-  (9,2): Key Press Period
-  (12,2): Key Press Keyboard F9
-  (1,3): Key Press L GUI+Keyboard D
-  (3,3): Key Press V
-  (4,3): Key Press Tab
-  (5,3): Key Press O
-  (7,3): Key Press D
-  (8,3): Key Press Z
-  (9,3): Key Press Spacebar
-  (12,3): Key Press Keyboard Spacebar
-  (3,4): Key Press L Ctrl+L Shift+Keyboard P
-  (4,4): Key Press L Alt+Keyboard Return Enter
-  (5,4): Key Press L Ctrl+Keyboard D
-  (7,4): Key Press L Ctrl+Keyboard Period and GreaterThan
-  (8,4): Key Press Delete
-  (4,5): Key Press Keyboard Delete
-  (5,5): Key Press L Ctrl+L Shift+Keyboard L
-  (7,5): Key Press L GUI+Keyboard Spacebar
+## Layer 4 (System) — 30 changes
+  (5,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (7,0) → Key Press L Ctrl+L Shift+Keyboard X  [Optimizer (evo_best_gen150): Ctrl+Shift+X (Expand compose box)]
+  (8,0) → Key Press Keyboard F6  [Optimizer (evo_best_gen150): _base_f6 (Base key: F6)]
+  (9,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (11,0) → Key Press L Ctrl+Keyboard Return Enter  [Optimizer (evo_best_gen150): Ctrl+Enter (Send (expanded mode))]
+  (5,1) → Key Press Keyboard Return Enter  [Optimizer (evo_best_gen150): _base_return enter (Base key: Return Enter)]
+  (7,1) → Key Press L Ctrl+Keyboard S  [Optimizer (evo_best_gen150): Ctrl+S (Save)]
+  (8,1) → Key Press Keyboard End  [Optimizer (evo_best_gen150): _base_end (Base key: End)]
+  (9,1) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (11,1) → Key Press Keyboard Delete  [Optimizer (evo_best_gen150): _base_delete (Base key: Delete)]
+  (0,2) → Key Press Keyboard Delete  [Optimizer (evo_best_gen150): Backspace (Go back / up)]
+  (4,2) → Key Press L Ctrl+Keyboard I  [Optimizer (evo_best_gen150): Ctrl+I (Italic)]
+  (5,2) → Key Press Keyboard Right Brace  [Optimizer (evo_best_gen150): _base_right bracket (Base key: Right Bracket)]
+  (7,2) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,2) → Key Press Keyboard LeftShift  [Optimizer (evo_best_gen150): _base_leftshift (Base key: LeftShift)]
+  (9,2) → Key Press Keyboard Left Brace  [Optimizer (evo_best_gen150): _base_left bracket (Base key: Left Bracket)]
+  (10,2) → Key Press Keyboard F12  [Optimizer (evo_best_gen150): _base_f12 (Base key: F12)]
+  (11,2) → Key Press Keyboard F5  [Optimizer (evo_best_gen150): _base_f5 (Base key: F5)]
+  (1,3) → Key Press L Shift+L Alt+Keyboard UpArrow  [Optimizer (evo_best_gen150): Shift+Alt+Up (Copy line up)]
+  (4,3) → Key Press Keyboard Tab  [Optimizer (evo_best_gen150): Tab (Indent / accept suggestion)]
+  (7,3) → Key Press L Ctrl+L Shift+Keyboard V  [Optimizer (evo_best_gen150): Ctrl+Shift+V (Paste without formatting)]
+  (8,3) → Key Press Keyboard Home  [Optimizer (evo_best_gen150): _base_home (Base key: Home)]
+  (9,3) → Key Press Keyboard F11  [Optimizer (evo_best_gen150): _base_f11 (Base key: F11)]
+  (10,3) → Key Press Keyboard F7  [Optimizer (evo_best_gen150): _base_f7 (Base key: F7)]
+  (3,4) → Key Press L Ctrl+Keyboard Tab  [Optimizer (evo_best_gen150): Ctrl+Tab (Next tab)]
+  (4,4) → Key Press L Ctrl+Keyboard T  [Optimizer (evo_best_gen150): Ctrl+T (New tab)]
+  (7,4) → Key Press L GUI+L Ctrl+Keyboard D  [Optimizer (evo_best_gen150): Win+Ctrl+D (New virtual desktop)]
+  (8,4) → Key Press Keyboard F9  [Optimizer (evo_best_gen150): _base_f9 (Base key: F9)]
+  (4,5) → Key Press L Ctrl+Keyboard ForwardSlash and QuestionMark  [Optimizer (evo_best_gen150): Ctrl+/ (Toggle line comment)]
+  (5,5) → Key Press Keyboard ForwardSlash and QuestionMark  [Optimizer (evo_best_gen150): _base_forwardslash_combo (Base key: ForwardSlash and QuestionMark)]
 
-## Layer 5 (Code) - 45 changes
-  (3,0): coach_l1_hold 
-  (4,0): Key Press D
-  (5,0): Key Press L Ctrl+Keyboard L
-  (7,0): Key Press Period and GreaterThan
-  (8,0): Key Press Z
-  (11,0): Key Press Escape
-  (12,0): Key Press Keyboard F9
-  (0,1): Key Press L GUI+Keyboard M
-  (1,1): Key Press LeftAlt
-  (2,1): Key Press L Ctrl+L Shift+Keyboard L
-  (3,1): Key Press L Ctrl+Keyboard Grave Accent and Tilde
-  (5,1): Key Press F20
-  (7,1): Key Press Q
-  (8,1): Key Press Period
-  (9,1): Key Press L GUI+Keyboard 2
-  (10,1): Key Press F16
-  (11,1): Key Press L Shift+Keyboard Tab
-  (0,2): Key Press F23
-  (1,2): Key Press E
-  (2,2): Key Press ForwardSlash and QuestionMark
-  (3,2): Key Press LeftShift
-  (4,2): Key Press Spacebar
-  (5,2): Key Press O
-  (7,2): Key Press L
-  (8,2): Key Press Tab
-  (9,2): Key Press L Shift+L Alt+Keyboard RightArrow
-  (11,2): Key Press L GUI+Keyboard LeftArrow
-  (0,3): Key Press L Ctrl+Keyboard 1
-  (2,3): Key Press C
-  (3,3): Key Press Left Brace
-  (4,3): Key Press DownArrow
-  (5,3): Key Press F19
-  (7,3): Key Press A
-  (8,3): Key Press G
-  (9,3): Reset 
-  (10,3): Key Press F21
-  (11,3): Key Press L Alt+Keyboard DownArrow
-  (12,3): Key Press L Ctrl+L Shift+Keyboard Tab
-  (4,4): Key Press Comma and LessThan
-  (5,4): Key Press L Ctrl+L Shift+Keyboard M
-  (7,4): Key Press Keyboard F12
-  (8,4): Key Press L Ctrl+L Shift+Keyboard K
-  (4,5): coach_mouse_lock 
-  (5,5): Key Press L Ctrl+Keyboard 
-  (7,5): Key Press L Ctrl+Keyboard Return Enter
+## Layer 5 (Code) — 40 changes
+  (0,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (1,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (3,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (5,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (7,0) → Key Press L Ctrl+L Shift+Keyboard H  [Optimizer (evo_best_gen150): Ctrl+Shift+H (Hang up / end call)]
+  (8,0) → Key Press L Ctrl+Keyboard G  [Optimizer (evo_best_gen150): Ctrl+G (Go to line)]
+  (9,0) → Key Press L GUI+L Ctrl+Keyboard D  [Optimizer (evo_best_gen150): Win+Ctrl+D (New virtual desktop)]
+  (11,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (12,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (1,1) → Key Press L Ctrl+L Shift+Keyboard F  [Optimizer (evo_best_gen150): Ctrl+Shift+F (Format document)]
+  (2,1) → Key Press Keyboard F18  [Optimizer (evo_best_gen150): _base_f18 (Base key: F18)]
+  (3,1) → Key Press L GUI+L Ctrl+Keyboard RightArrow  [Optimizer (evo_best_gen150): Win+Ctrl+Right (Switch desktop right)]
+  (5,1) → Key Press L Ctrl+L Shift+Keyboard Grave Accent and Tilde  [Optimizer (evo_best_gen150): Ctrl+Shift+` (New terminal)]
+  (7,1) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,1) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (9,1) → Key Press L Ctrl+Keyboard W  [Optimizer (evo_best_gen150): Ctrl+W (Close tab)]
+  (10,1) → Key Press Keyboard F1  [Optimizer (evo_best_gen150): _base_f1 (Base key: F1)]
+  (11,1) → Key Press Keyboard Backslash and Pipe  [Optimizer (evo_best_gen150): _base_backslash (Base key: Backslash and Pipe)]
+  (12,1) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (0,2) → Key Press L Ctrl+Keyboard N  [Optimizer (evo_best_gen150): Ctrl+N (New mail)]
+  (2,2) → Key Press L Ctrl+Keyboard J  [Optimizer (evo_best_gen150): Ctrl+J (Toggle bottom panel)]
+  (5,2) → Key Press L Ctrl+L Shift+Keyboard S  [Optimizer (evo_best_gen150): Ctrl+Shift+S (Attach file)]
+  (7,2) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,2) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (9,2) → Key Press L Ctrl+Keyboard L  [Optimizer (evo_best_gen150): Ctrl+L (Focus address bar)]
+  (10,2) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (11,2) → coach_travel_toggle   [Optimizer (evo_best_gen150): _base_coach_travel_toggle (Base key: coach_travel_toggle)]
+  (12,2) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (0,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (2,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (5,3) → Key Press Keyboard F8  [Optimizer (evo_best_gen150): _base_f8 (Base key: F8)]
+  (7,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (9,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (10,3) → Key Press Keypad 3 and PageDn  [Optimizer (evo_best_gen150): _base_keypad 3 (Base key: Keypad 3 and PageDn)]
+  (11,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (12,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (5,4) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (7,4) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,4) → Transparent   [Cleared by optimizer (evo_best_gen150)]
 
-## Layer 6 (Scroll) - 56 changes
-  (0,0): Key Press L Ctrl+Keyboard Z
-  (1,0): Key Press L Ctrl+Keyboard X
-  (2,0): Key Press L Ctrl+Keyboard Y
-  (3,0): Key Press L GUI+Keyboard RightArrow
-  (4,0): Key Press J
-  (5,0): Key Press R
-  (7,0): Key Press Period and GreaterThan
-  (8,0): Key Press Z
-  (9,0): Key Press L GUI+Keyboard E
-  (10,0): Key Press UpArrow
-  (11,0): Key Press L Shift+Keyboard F11
-  (12,0): Key Press L Ctrl+Keyboard 3
-  (0,1): Key Press L Ctrl+Keyboard C
-  (1,1): Key Press LeftAlt
-  (2,1): Key Press N
-  (3,1): Key Press Delete
-  (4,1): Key Press LeftControl
-  (5,1): Key Press L Alt+Keyboard Click
-  (7,1): Key Press Q
-  (8,1): Key Press Period
-  (9,1): Key Press L Ctrl+Keyboard Tab
-  (10,1): Key Press S
-  (11,1): Key Press Minus
-  (12,1): Key Press L Alt+Keyboard F12
-  (0,2): Key Press 9 and Left Bracket
-  (1,2): Key Press E
-  (2,2): Key Press V
-  (3,2): Key Press LeftShift
-  (4,2): Key Press T
-  (5,2): Key Press O
-  (7,2): Key Press L
-  (8,2): Key Press M
-  (9,2): Key Press H
-  (10,2): Key Press SemiColon and Colon
-  (11,2): Key Press L Ctrl+Keyboard 9
-  (12,2): Key Press B
-  (0,3): Key Press L Alt+Keyboard UpArrow
-  (1,3): Key Press L Ctrl+Keyboard V
-  (2,3): Key Press C
-  (3,3): Key Press Y
-  (4,3): Key Press Spacebar
-  (5,3): Key Press Keyboard F2
-  (7,3): Key Press A
-  (8,3): Key Press 0 and Right Bracket
-  (9,3): Key Press X
-  (10,3): Bluetooth BT_SEL 3
-  (11,3): Key Press L Ctrl+Keyboard W
-  (12,3): Key Press Tab
-  (3,4): Key Press Left Brace
-  (4,4): Key Press Left Brace
-  (5,4): Key Press L Ctrl+Keyboard D
-  (7,4): Key Press L GUI+L Shift+Keyboard S
-  (8,4): Key Press F13
-  (4,5): Key Press L GUI+L Shift+Keyboard LeftArrow
-  (5,5): Key Press L GUI+L Ctrl+Keyboard RightArrow
-  (7,5): Bluetooth BT_SEL 2
+## Layer 6 (Scroll) — 28 changes
+  (3,0) → Key Press L Alt+Keyboard Equals and Plus  [Optimizer (evo_best_gen150): Alt+= (AutoSum)]
+  (4,0) → Key Press L Ctrl+Keyboard LeftArrow  [Optimizer (evo_best_gen150): Ctrl+Left (Jump to left edge of data)]
+  (8,0) → Key Press L Ctrl+Keyboard Q  [Optimizer (evo_best_gen150): Ctrl+Q (Mark as read)]
+  (2,1) → Key Press L Ctrl+Keyboard Spacebar  [Optimizer (evo_best_gen150): Ctrl+Space (Select entire column)]
+  (3,1) → Key Press Keyboard F10  [Optimizer (evo_best_gen150): F10 (Step over)]
+  (4,1) → Key Press L GUI+L Shift+Keyboard LeftArrow  [Optimizer (evo_best_gen150): Win+Shift+Left (Move to left monitor)]
+  (5,1) → Key Press L Ctrl+Keyboard RightArrow  [Optimizer (evo_best_gen150): Ctrl+Right (Jump to right edge of data)]
+  (7,1) → Key Press L Ctrl+L Shift+Keyboard R  [Optimizer (evo_best_gen150): Ctrl+Shift+R (Reply all)]
+  (8,1) → Key Press L Alt+Keyboard RightArrow  [Optimizer (evo_best_gen150): Alt+Right (Forward)]
+  (9,1) → Key Press L Ctrl+Keyboard 5 and Percent  [Optimizer (evo_best_gen150): Ctrl+5 (Calls)]
+  (10,1) → Key Press L Ctrl+L Shift+Keyboard LeftArrow  [Optimizer (evo_best_gen150): Ctrl+Shift+Left (Select to left edge)]
+  (1,2) → Key Press L Ctrl+L Shift+Keyboard DownArrow  [Optimizer (evo_best_gen150): Ctrl+Shift+Down (Select to bottom edge)]
+  (2,2) → Key Press Keyboard F9  [Optimizer (evo_best_gen150): F9 (Toggle breakpoint)]
+  (4,2) → Key Press L Ctrl+Keyboard 3 and Hash  [Optimizer (evo_best_gen150): Ctrl+3 (Teams/channels)]
+  (5,2) → Key Press L GUI+Keyboard Spacebar  [Optimizer (evo_best_gen150): Win+Space (Switch input language)]
+  (8,2) → Key Press L Ctrl+Keyboard 4 and Dollar  [Optimizer (evo_best_gen150): Ctrl+4 (Calendar)]
+  (9,2) → Key Press Keyboard F5  [Optimizer (evo_best_gen150): F5 (Refresh page)]
+  (10,2) → Key Press L Ctrl+L Alt+Keyboard DownArrow  [Optimizer (evo_best_gen150): Ctrl+Alt+Down (Add cursor below)]
+  (11,2) → Key Press L Ctrl+L Shift+Keyboard UpArrow  [Optimizer (evo_best_gen150): Ctrl+Shift+Up (Select to top edge)]
+  (2,3) → Key Press L Ctrl+L Shift+Keyboard Equals and Plus  [Optimizer (evo_best_gen150): Ctrl+Shift++ (Insert cells/rows/columns)]
+  (3,3) → Key Press L Shift+Keyboard F11  [Optimizer (evo_best_gen150): Shift+F11 (Step out)]
+  (4,3) → Key Press L GUI+L Shift+Keyboard RightArrow  [Optimizer (evo_best_gen150): Win+Shift+Right (Move to right monitor)]
+  (5,3) → Key Press Keyboard F4  [Optimizer (evo_best_gen150): F4 (Toggle absolute ref ($))]
+  (7,3) → Key Press L Ctrl+L Shift+Keyboard I  [Optimizer (evo_best_gen150): Ctrl+Shift+I (Go to Inbox)]
+  (8,3) → Key Press L Ctrl+L Shift+Keyboard T  [Optimizer (evo_best_gen150): Ctrl+Shift+T (Reopen closed tab)]
+  (9,3) → Key Press L Ctrl+Keyboard 6 and Caret  [Optimizer (evo_best_gen150): Ctrl+6 (Files)]
+  (10,3) → Key Press L Ctrl+L Shift+Keyboard RightArrow  [Optimizer (evo_best_gen150): Ctrl+Shift+Right (Select to right edge)]
+  (4,4) → Key Press L Ctrl+Keyboard 0 and Right Bracket  [Optimizer (evo_best_gen150): Ctrl+0 (Reset zoom)]
 
-## Layer 8 (Speed) - 55 changes
-  (0,0): Key Press L Shift+L Alt+Keyboard DownArrow
-  (1,0): Key Press PageDown
-  (2,0): Key Press L GUI+Keyboard DownArrow
-  (3,0): Key Press LeftControl
-  (4,0): Key Press Keyboard F3
-  (5,0): Key Press Right Brace
-  (7,0): Key Press Keyboard F12
-  (8,0): Key Press Z
-  (9,0): Output Selection select:usb output
-  (10,0): Key Press L Ctrl+Keyboard Grave Accent and Tilde
-  (11,0): Key Press L Ctrl+L Shift+Keyboard RightArrow
-  (12,0): Key Press L Ctrl+L Shift+Keyboard P
-  (0,1): Key Press L Ctrl+L Shift+Keyboard 6
-  (1,1): Key Press F
-  (2,1): Key Press Y
-  (3,1): Key Press B
-  (4,1): Key Press S
-  (5,1): Key Press LeftAlt
-  (7,1): coach_l2_hold 
-  (8,1): Key Press Period
-  (9,1): Key Press O
-  (10,1): coach_travel_toggle 
-  (11,1): Key Press End
-  (12,1): Key Press L Ctrl+L Shift+Keyboard 9
-  (0,2): Key Press L Ctrl+Keyboard 3
-  (1,2): Key Press L Ctrl+Keyboard D
-  (2,2): Key Press J
-  (3,2): Key Press M
-  (4,2): Key Press Escape
-  (5,2): Key Press X
-  (7,2): Key Press U
-  (8,2): Key Press Tab
-  (9,2): Key Press Spacebar
-  (10,2): Key Press Comma and LessThan
-  (11,2): Key Press LeftShift
-  (12,2): coach_game_lock 
-  (0,3): Mouse Key Press select:mb5
-  (1,3): Key Press Q
-  (2,3): Key Press L Ctrl+L Shift+Keyboard Z
-  (3,3): Key Press UpArrow
-  (4,3): Key Press Keyboard Return Enter
-  (5,3): Key Press E
-  (7,3): Key Press A
-  (8,3): Key Press 0 and Right Bracket
-  (9,3): Key Press C
-  (10,3): Key Press Delete
-  (11,3): Key Press N
-  (12,3): Key Press L Ctrl+Keyboard Tab
-  (3,4): Key Press L Ctrl+Keyboard Q
-  (4,4): Key Press L GUI+Keyboard 3
-  (5,4): Key Press L Ctrl+Keyboard 5
-  (8,4): Key Press V
-  (4,5): Key Press Backslash and Pipe
-  (5,5): Mouse Key Press select:mb3
-  (7,5): Key Press F15
+## Layer 8 (Speed) — 24 changes
+  (4,0) → Key Press Keyboard Escape  [Optimizer (evo_best_gen150): _base_escape (Base key: Escape)]
+  (8,0) → Key Press L Shift+Keyboard Spacebar  [Optimizer (evo_best_gen150): Shift+Space (Select entire row)]
+  (2,1) → Key Press Keyboard F11  [Optimizer (evo_best_gen150): F11 (Step into)]
+  (3,1) → Key Press L Ctrl+L Shift+Keyboard S  [Optimizer (evo_best_gen150): Ctrl+Shift+S (Attach file)]
+  (4,1) → Key Press Keyboard Home  [Optimizer (evo_best_gen150): _base_home (Base key: Home)]
+  (5,1) → Key Press L GUI+L Ctrl+Keyboard RightArrow  [Optimizer (evo_best_gen150): Win+Ctrl+Right (Switch desktop right)]
+  (7,1) → Key Press L Ctrl+L Shift+Keyboard Escape  [Optimizer (evo_best_gen150): Ctrl+Shift+Esc (Task Manager)]
+  (8,1) → Key Press L Ctrl+L Shift+Keyboard Z  [Optimizer (evo_best_gen150): Ctrl+Shift+Z (Redo)]
+  (9,1) → Key Press L Ctrl+Keyboard Dash and Underscore  [Optimizer (evo_best_gen150): Ctrl+- (Delete cells/rows/columns)]
+  (2,2) → Key Press L Ctrl+L Shift+Keyboard F6  [Optimizer (evo_best_gen150): Ctrl+Shift+F6 (Next section)]
+  (4,2) → Key Press Keyboard Left GUI  [Optimizer (evo_best_gen150): _base_left gui (Base key: Left GUI)]
+  (7,2) → Key Press L Ctrl+L Shift+Keyboard Grave Accent and Tilde  [Optimizer (evo_best_gen150): Ctrl+Shift+` (New terminal)]
+  (8,2) → Key Press L Alt+Keyboard F4  [Optimizer (evo_best_gen150): Alt+F4 (Close window)]
+  (9,2) → Key Press L Alt+Keyboard DownArrow  [Optimizer (evo_best_gen150): Alt+Down (Move line down)]
+  (10,2) → Key Press L Ctrl+Keyboard Period and GreaterThan  [Optimizer (evo_best_gen150): Ctrl+. (Show commands)]
+  (3,3) → Key Press L Ctrl+L Shift+Keyboard B  [Optimizer (evo_best_gen150): Ctrl+Shift+B (Toggle background blur)]
+  (4,3) → Key Press Keyboard Tab  [Optimizer (evo_best_gen150): _base_tab (Base key: Tab)]
+  (5,3) → Key Press L GUI+Keyboard Period and GreaterThan  [Optimizer (evo_best_gen150): Win+. (Emoji picker)]
+  (7,3) → Key Press L GUI+Keyboard SemiColon and Colon  [Optimizer (evo_best_gen150): Win+; (Emoji picker)]
+  (8,3) → Key Press L Alt+Keyboard UpArrow  [Optimizer (evo_best_gen150): Alt+Up (Move line up)]
+  (9,3) → Key Press L Ctrl+Keyboard Home  [Optimizer (evo_best_gen150): Ctrl+Home (Go to cell A1)]
+  (8,4) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (4,5) → Key Press Keyboard Delete  [Optimizer (evo_best_gen150): Delete (Delete)]
+  (5,5) → Key Press Keyboard F10  [Optimizer (evo_best_gen150): F10 (Step over)]
 
-## Layer 9 (M-Files) - 36 changes
-  (2,0): Key Press L Ctrl+L Shift+Keyboard T
-  (3,0): Key Press Keyboard F2
-  (4,0): Key Press UpArrow
-  (5,0): Key Press L GUI+Keyboard LeftArrow
-  (7,0): Key Press L Ctrl+Keyboard 4
-  (8,0): Key Press Left GUI
-  (9,0): Key Press L Ctrl+L Shift+Keyboard G
-  (10,0): Key Press L Ctrl+L Shift+Keyboard C
-  (3,1): Key Press L Ctrl+Keyboard T
-  (4,1): Key Press L Alt+Keyboard UpArrow
-  (5,1): Key Press M
-  (7,1): Key Press LeftAlt
-  (8,1): Key Press Spacebar
-  (9,1): Key Press Keyboard F10
-  (10,1): Key Press T
-  (4,2): Key Press B
-  (5,2): Key Press S
-  (7,2): Key Press SemiColon and Colon
-  (8,2): Key Press V
-  (9,2): Key Press L Ctrl+Keyboard Y
-  (12,2): Key Press Keyboard F3
-  (3,3): Key Press L Ctrl+L Shift+Keyboard S
-  (4,3): Key Press L Alt+Keyboard LeftArrow
-  (5,3): Key Press L Ctrl+L Alt+Keyboard DownArrow
-  (7,3): Key Press E
-  (8,3): Key Press L Alt+Keyboard RightArrow
-  (9,3): Key Press Z
-  (10,3): Key Press L Ctrl+Keyboard J
-  (11,3): Key Press Keyboard F4
-  (4,4): Key Press LeftControl
-  (5,4): Key Press Keyboard F5
-  (7,4): Key Press L Ctrl+Keyboard Tab
-  (8,4): Key Press L Ctrl+L Shift+Keyboard F
-  (4,5): Key Press Keyboard Tab
-  (5,5): Key Press Keyboard Return Enter
-  (7,5): Key Press L Ctrl+Keyboard 2
+## Layer 9 (M-Files) — 20 changes
+  (0,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (4,0) → Key Press L Ctrl+Keyboard End  [Optimizer (evo_best_gen150): Ctrl+End (Go to last used cell)]
+  (8,0) → Key Press L Ctrl+Keyboard UpArrow  [Optimizer (evo_best_gen150): Ctrl+Up (Jump to top edge of data)]
+  (0,1) → Key Press Keyboard F2  [Optimizer (evo_best_gen150): _base_f2 (Base key: F2)]
+  (3,1) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,1) → Key Press L Shift+L Alt+Keyboard DownArrow  [Optimizer (evo_best_gen150): Shift+Alt+Down (Copy line down)]
+  (9,1) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (0,2) → Key Press Keypad 9 and PageUp  [Optimizer (evo_best_gen150): _base_pageup (Base key: Keypad 9 and PageUp)]
+  (3,2) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (4,2) → Key Press L GUI+Keyboard Tab  [Optimizer (evo_best_gen150): Win+Tab (Task View)]
+  (7,2) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,2) → Key Press Keyboard LeftShift  [Optimizer (evo_best_gen150): _base_leftshift (Base key: LeftShift)]
+  (9,2) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (0,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,3) → Key Press Keyboard RightArrow  [Optimizer (evo_best_gen150): _base_rightarrow_combo (Base key: RightArrow)]
+  (9,3) → Key Press L Ctrl+Keyboard DownArrow  [Optimizer (evo_best_gen150): Ctrl+Down (Jump to bottom edge of data)]
+  (3,4) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (5,4) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (7,4) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,4) → Transparent   [Cleared by optimizer (evo_best_gen150)]
 
-## Layer 10 (Excel) - 48 changes
-  (0,0): Key Press L Ctrl+L Alt+Keyboard UpArrow
-  (1,0): Key Press F16
-  (2,0): Key Press L Ctrl+L Shift+Keyboard M
-  (3,0): Key Press F20
-  (4,0): Key Press Comma and LessThan
-  (5,0): Key Press R
-  (7,0): Key Press F
-  (8,0): Key Press Tab
-  (10,0): Key Press F22
-  (12,0): Key Press L Ctrl+L Shift+Keyboard ~
-  (0,1): Key Press L Ctrl+L Shift+Keyboard O
-  (1,1): Key Press LeftAlt
-  (2,1): Key Press D
-  (3,1): Key Press S
-  (4,1): Key Press LeftControl
-  (5,1): Key Press M
-  (7,1): Key Press Q
-  (9,1): Key Press Period and GreaterThan
-  (10,1): Key Press Delete
-  (11,1): Key Press L Shift+Keyboard Return Enter
-  (12,1): Key Press L Ctrl+Keyboard P
-  (0,2): Key Press F23
-  (1,2): Key Press E
-  (2,2): Key Press Return Enter
-  (3,2): Key Press LeftShift
-  (4,2): Key Press A
-  (5,2): Key Press O
-  (7,2): Key Press L
-  (8,2): Key Press Z
-  (9,2): Key Press P
-  (10,2): Key Press SemiColon and Colon
-  (0,3): Key Press L Ctrl+Keyboard End
-  (1,3): Key Press L Ctrl+L Shift+Keyboard P
-  (3,3): Key Press Left Brace
-  (4,3): Key Press F17
-  (5,3): Key Press L Ctrl+Keyboard D
-  (7,3): Key Press Escape
-  (8,3): Key Press 0 and Right Bracket
-  (9,3): Bluetooth BT_SEL 3
-  (10,3): Key Press X
-  (12,3): Key Press L Ctrl+Keyboard H
-  (3,4): Key Press L Alt+Keyboard F12
-  (4,4): Key Press Home
-  (7,4): Key Press L Ctrl+L Shift+Keyboard RightArrow
-  (8,4): Key Press L Ctrl+Keyboard R
-  (4,5): Key Press Keyboard Delete
-  (5,5): Key Press End
-  (7,5): Key Press L Ctrl+Keyboard LeftArrow
+## Layer 10 (Excel) — 31 changes
+  (5,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (7,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (9,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (11,0) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (12,0) → Key Press L GUI+Keyboard C  [Optimizer (evo_best_gen150): Win+C (Open Copilot)]
+  (2,1) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (4,1) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (7,1) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,1) → coach_mouse_lock   [Optimizer (evo_best_gen150): _base_coach_mouse_lock (Base key: coach_mouse_lock)]
+  (9,1) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (11,1) → Key Press L GUI+Keyboard B  [Optimizer (evo_best_gen150): Win+B (Focus system tray)]
+  (12,1) → coach_game_lock   [Optimizer (evo_best_gen150): _base_coach_game_lock (Base key: coach_game_lock)]
+  (3,2) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (5,2) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (7,2) → Key Press L GUI+Keyboard L  [Optimizer (evo_best_gen150): Win+L (Lock PC)]
+  (11,2) → Key Press L GUI+Keyboard 2 and At  [Optimizer (evo_best_gen150): Win+2 (Open/switch pinned app 2)]
+  (12,2) → Key Press L GUI+Keyboard N  [Optimizer (evo_best_gen150): Win+N (Notification center)]
+  (4,3) → Key Press L Ctrl+L Alt+Keyboard UpArrow  [Optimizer (evo_best_gen150): Ctrl+Alt+Up (Add cursor above)]
+  (5,3) → Key Press L Ctrl+Keyboard PageDown  [Optimizer (evo_best_gen150): Ctrl+Page Down (Next sheet)]
+  (7,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (8,3) → Key Press L GUI+Keyboard E  [Optimizer (evo_best_gen150): Win+E (File Explorer)]
+  (9,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (10,3) → Key Press Keyboard Grave Accent and Tilde  [Optimizer (evo_best_gen150): _base_grave accent_combo (Base key: Grave Accent and Tilde)]
+  (11,3) → Key Press L GUI+Keyboard LeftArrow  [Optimizer (evo_best_gen150): Win+Left (Snap window left)]
+  (12,3) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (4,4) → Key Press Keyboard F13  [Optimizer (evo_best_gen150): _base_f13 (Base key: F13)]
+  (5,4) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (7,4) → Key Press L GUI+Keyboard T  [Optimizer (evo_best_gen150): Win+T (Cycle taskbar apps)]
+  (8,4) → Transparent   [Cleared by optimizer (evo_best_gen150)]
+  (7,5) → Key Press L GUI+L Ctrl+Keyboard D  [Optimizer (evo_best_gen150): Win+Ctrl+D (New virtual desktop)]
 

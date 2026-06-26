@@ -188,6 +188,33 @@ def preseed_unplaced_shortcuts(genome, positions, shortcut_pool, layer_positions
     momentary_layers = {l for l, a in LAYER_ACCESS.items()
                         if a["method"] in ("momentary", "momentary_or_locked")}
 
+    # Pre-seed free-thumb positions on momentary layers first — these are the
+    # highest-value empty positions (opposite thumb from hold key, very easy to press)
+    free_thumb_seeded = 0
+    for layer in momentary_layers:
+        access = LAYER_ACCESS.get(layer, {})
+        hold_thumb = access.get("thumb")
+        if not hold_thumb:
+            continue
+        free_thumbs = sorted(
+            [p for p in layer_positions.get(layer, [])
+             if p.is_thumb and p.hand != hold_thumb and genome[p.gene_idx] < 0],
+            key=lambda p: p.effort
+        )
+        for p in free_thumbs:
+            if not unplaced:
+                break
+            # Pick highest importance unplaced shortcut
+            for idx, s in enumerate(unplaced):
+                if s.sid not in assigned_sids:
+                    genome[p.gene_idx] = s.sid
+                    assigned_sids.add(s.sid)
+                    unplaced.pop(idx)
+                    free_thumb_seeded += 1
+                    break
+    if free_thumb_seeded:
+        print(f"  Pre-seeded {free_thumb_seeded} shortcuts into free-thumb positions")
+
     placed = 0
     for s in unplaced:
         best_pos = None
@@ -707,6 +734,61 @@ def main():
         usage_conj_count += 1
     if usage_conj_count:
         print(f"Added {usage_conj_count} usage-derived conjunction pairs")
+
+    # Merge chains: boost adjacent pairs + add transitive pairs for non-adjacent members
+    usage_chains = usage_stats.get("chains", {})
+    chain_count = 0
+    for chain_key, chain_data in usage_chains.items():
+        parts = chain_key.split(" -> ")
+        count = chain_data.get("count", 0)
+        if count < 2 or len(parts) < 2:
+            continue
+        # Adjacent pairs get full boost
+        for i in range(len(parts) - 1):
+            pair_key = "|".join(sorted([parts[i], parts[i+1]]))
+            conjunction_pairs[pair_key] = conjunction_pairs.get(pair_key, 0) + count * 0.3
+        # Non-adjacent transitive pairs get distance-decayed boost
+        for i in range(len(parts)):
+            for j in range(i+2, len(parts)):
+                pair_key = "|".join(sorted([parts[i], parts[j]]))
+                distance_decay = 1.0 / (j - i)
+                conjunction_pairs[pair_key] = conjunction_pairs.get(pair_key, 0) + count * 0.2 * distance_decay
+        chain_count += 1
+    if chain_count:
+        print(f"Added {chain_count} chain-derived conjunction boosts")
+
+    # Merge workflows: all pairwise combinations weighted by proximity in sequence
+    usage_workflows = usage_stats.get("workflows", {})
+    wf_count = 0
+    for wf_key, wf_data in usage_workflows.items():
+        parts = wf_key.split(" -> ")
+        count = wf_data.get("count", 0)
+        if count < 3 or len(parts) < 3:
+            continue
+        for i in range(len(parts)):
+            for j in range(i+1, len(parts)):
+                pair_key = "|".join(sorted([parts[i], parts[j]]))
+                distance_factor = 1.0 / (j - i)
+                conjunction_pairs[pair_key] = conjunction_pairs.get(pair_key, 0) + count * 0.4 * distance_factor
+        wf_count += 1
+    if wf_count:
+        print(f"Added {wf_count} workflow-derived conjunction boosts")
+
+    # Layer session common_keys: keys used together on the same layer
+    layer_sessions = usage_stats.get("layer_sessions", {})
+    ls_count = 0
+    for layer_str, session_data in layer_sessions.items():
+        common_keys = session_data.get("common_keys", [])
+        count = session_data.get("count", 1)
+        if len(common_keys) < 2:
+            continue
+        for i in range(min(len(common_keys), 5)):
+            for j in range(i+1, min(len(common_keys), 5)):
+                pair_key = "|".join(sorted([common_keys[i], common_keys[j]]))
+                conjunction_pairs[pair_key] = conjunction_pairs.get(pair_key, 0) + count * 0.2
+                ls_count += 1
+    if ls_count:
+        print(f"Added {ls_count} layer-session conjunction pairs")
 
     frozen = set(config.get("frozen_layers", [7]))
     positions = build_position_index(canonical, frozen)

@@ -47,6 +47,10 @@ The pipeline's `aggregate_usage.js` module reads the usage JSONL. Pass `--runtim
 
 `evolve/config.json` controls: `pop_size`, `n_generations`, and 12 fitness weights. The fitness function in `fitness.py` evaluates: effort, adjacency, violations, finger balance, same-finger penalty, thumb utilization, cross-layer consistency, trackball proximity, app transition, learning curve, Norwegian awareness, ZMK Studio compatibility.
 
+## Layer 0 Rules
+
+Most of L0 is frozen (letters, numbers, punctuation — the QWERTY base). But ~8 thumb-area positions on L0 are always open for mutation (coach holds, MB1, leftalt). These are configured via `open_l0_keys` in `config.json`. Operators must respect the frozen set via `_protected_gene_indices`, but must NOT skip L0 entirely — the open thumb positions need to participate in evolution like any other mutable position.
+
 ## Key Constraints
 
 - Multi-app shortcuts: a shortcut used by 3+ apps gets scored once per app (not averaged away)

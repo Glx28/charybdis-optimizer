@@ -61,6 +61,9 @@ function run(config) {
   const holdHeavy = {};
   const modifierTaps = {};
   const appFocusTime = {};
+  const chainBuffer = [];  // ring buffer for 3-event chain detection
+  const chains = {};
+  const shortcutEventLog = [];  // flat log for workflow detection
   let earliest = null, latest = null;
 
   for (const line of lines) {
@@ -129,7 +132,7 @@ function run(config) {
     if (eventType === "typing_counter") {
       const tkeys = entry.keys || "unknown";
       const tcount = entry.count || 1;
-      if (!shortcuts[tkeys]) shortcuts[tkeys] = { count: 0, apps: {} };
+      if (!shortcuts[tkeys]) shortcuts[tkeys] = { count: 0, apps: {}, by_layer: {} };
       shortcuts[tkeys].count += tcount;
       shortcuts[tkeys].apps[app] = (shortcuts[tkeys].apps[app] || 0) + tcount;
       if (!byApp[app]) byApp[app] = { total: 0, shortcuts: {}, mouse_clicks: 0, scroll_total: 0 };
@@ -144,9 +147,10 @@ function run(config) {
     const keys = normalizeKeys(rawKeys);
     const repeatCount = entry.repeat_count || 1;
 
-    if (!shortcuts[keys]) shortcuts[keys] = { count: 0, apps: {} };
+    if (!shortcuts[keys]) shortcuts[keys] = { count: 0, apps: {}, by_layer: {} };
     shortcuts[keys].count += repeatCount;
     shortcuts[keys].apps[app] = (shortcuts[keys].apps[app] || 0) + repeatCount;
+    shortcuts[keys].by_layer[layer] = (shortcuts[keys].by_layer[layer] || 0) + repeatCount;
 
     if (!byApp[app]) byApp[app] = { total: 0, shortcuts: {}, mouse_clicks: 0, scroll_total: 0 };
     byApp[app].total += repeatCount;
@@ -165,6 +169,23 @@ function run(config) {
       if (!holdHeavy[keys]) holdHeavy[keys] = { count: 0, total_hold_ms: 0 };
       holdHeavy[keys].count++;
       holdHeavy[keys].total_hold_ms += entry.held_ms;
+    }
+
+    // Chain detection: variable-length sliding windows (2, 3, 4, 5 events)
+    const evt = { keys, ts, app, layer };
+    shortcutEventLog.push(evt);
+    chainBuffer.push(evt);
+    if (chainBuffer.length > 5) chainBuffer.shift();
+    for (let winSize = 2; winSize <= chainBuffer.length; winSize++) {
+      const win = chainBuffer.slice(chainBuffer.length - winSize);
+      const spanMs = new Date(win[winSize - 1].ts) - new Date(win[0].ts);
+      if (spanMs > 10000) continue;
+      const sameApp = win.every(e => e.app === win[0].app);
+      if (!sameApp) continue;
+      const chainKey = win.map(e => e.keys).join(" -> ");
+      if (!chains[chainKey]) chains[chainKey] = { count: 0, total_ms: 0 };
+      chains[chainKey].count++;
+      chains[chainKey].total_ms += spanMs;
     }
   }
 
@@ -222,9 +243,44 @@ function run(config) {
     if (sec > 0) appTime[key] = (appTime[key] || 0) + sec;
   }
 
+  // ── Finalize chains ──
+  for (const [, c] of Object.entries(chains)) {
+    c.avg_total_ms = Math.round(c.total_ms / Math.max(c.count, 1));
+    delete c.total_ms;
+  }
+
+  // ── Workflow detection: repeated subsequences of 3-5 shortcuts ──
+  const workflows = {};
+  for (let winSize = 3; winSize <= 5; winSize++) {
+    for (let i = 0; i <= shortcutEventLog.length - winSize; i++) {
+      const window = shortcutEventLog.slice(i, i + winSize);
+      const spanMs = new Date(window[winSize - 1].ts) - new Date(window[0].ts);
+      if (spanMs > 15000) continue;
+      const apps = new Set(window.map(e => e.app));
+      if (apps.size > 1) continue;
+      const wfKey = window.map(e => e.keys).join(" -> ");
+      if (!workflows[wfKey]) workflows[wfKey] = { count: 0, apps: {} };
+      workflows[wfKey].count++;
+      const app = window[0].app;
+      workflows[wfKey].apps[app] = (workflows[wfKey].apps[app] || 0) + 1;
+    }
+  }
+  // Filter: only keep workflows with count >= 3
+  for (const key of Object.keys(workflows)) {
+    if (workflows[key].count < 3) delete workflows[key];
+  }
+
   // ── Blind spot analysis ──
   // Cross-reference: apps the user spends time in vs shortcuts they actually use
   const blindSpots = analyzeBlindSpots(shortcuts, appTime, periodDays);
+
+  // Build by_layer_shortcut: {keys -> {layer -> count}} for layer-aware fitness
+  const byLayerShortcut = {};
+  for (const [keys, data] of Object.entries(shortcuts)) {
+    if (data.by_layer && Object.keys(data.by_layer).length > 0) {
+      byLayerShortcut[keys] = data.by_layer;
+    }
+  }
 
   const output = {
     timestamp: new Date().toISOString(),
@@ -234,6 +290,9 @@ function run(config) {
     sequences,
     by_app: byApp,
     by_layer: byLayer,
+    by_layer_shortcut: byLayerShortcut,
+    chains,
+    workflows,
     app_time_seconds: appTime,
     blind_spots: blindSpots,
     mouse_clicks: mouseClicks,

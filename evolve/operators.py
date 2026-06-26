@@ -71,6 +71,38 @@ def _protected_gene_indices(genome, positions, pool, dynamic_groups=None):
     return protected
 
 
+def _find_group_members_at(genome, positions, pool, gene_idx):
+    """If genome[gene_idx] is part of a protected group, return all gene indices
+    of that group on the same layer. Otherwise return None."""
+    sid = genome[gene_idx]
+    if sid < 0 or pool is None:
+        return None
+    s = pool[sid]
+    layer = positions[gene_idx].layer
+    for group in KEY_GROUPS:
+        if not group.get("protected") or "behaviors" in group:
+            continue
+        params = [p.upper() for p in group.get("params", [])]
+        mods_req = group.get("mods_required", "")
+        if s.base_key.upper() not in params:
+            continue
+        if mods_req and not any(mods_req.lower() in m.lower() for m in s.modifiers):
+            continue
+        # Found the group — collect all members on same layer
+        members = []
+        for i, sid2 in enumerate(genome):
+            if sid2 < 0 or positions[i].layer != layer:
+                continue
+            s2 = pool[sid2]
+            if s2.base_key.upper() not in params:
+                continue
+            if mods_req and not any(mods_req.lower() in m.lower() for m in s2.modifiers):
+                continue
+            members.append(i)
+        return members if len(members) >= 2 else None
+    return None
+
+
 def swap_within_layer(genome, positions, layer_positions=None, pool=None, dynamic_groups=None):
     genome = copy.copy(genome)
     if layer_positions is None:
@@ -86,6 +118,13 @@ def swap_within_layer(genome, positions, layer_positions=None, pool=None, dynami
         ia = pos_list[a].gene_idx
         ib = pos_list[b].gene_idx
         if ia in protected or ib in protected:
+            continue
+        # If swapping a group member with a non-member, skip — would break group
+        grp_a = _find_group_members_at(genome, positions, pool, ia)
+        grp_b = _find_group_members_at(genome, positions, pool, ib)
+        if grp_a and ib not in grp_a:
+            continue
+        if grp_b and ia not in grp_b:
             continue
         genome[ia], genome[ib] = genome[ib], genome[ia]
         return genome
@@ -105,6 +144,10 @@ def swap_to_empty(genome, positions, layer_positions=None, pool=None, dynamic_gr
         empty = [p for p in pos_list if genome[p.gene_idx] < 0]
         if assigned and empty:
             src = random.choice(assigned)
+            # Don't move a group member away from its group
+            grp = _find_group_members_at(genome, positions, pool, src.gene_idx)
+            if grp and len(grp) >= 2:
+                continue
             # Bias toward lower-effort targets
             empty.sort(key=lambda p: p.effort)
             pick_idx = min(int(random.expovariate(2.0) * len(empty)), len(empty) - 1)
@@ -343,20 +386,21 @@ def swap_layer_content(genome, positions, shortcut_pool, layer_positions=None, d
     genome = copy.copy(genome)
     if layer_positions is None:
         layer_positions = build_layer_to_positions(positions)
+    protected = _protected_gene_indices(genome, positions, shortcut_pool, dynamic_groups) if shortcut_pool else set()
     layers = list(layer_positions.keys())
     if len(layers) < 2:
         return genome
     la, lb = random.sample(layers, 2)
     pos_a = layer_positions[la]
     pos_b = layer_positions[lb]
-    sids_a = [(p.gene_idx, genome[p.gene_idx]) for p in pos_a if genome[p.gene_idx] >= 0]
-    sids_b = [(p.gene_idx, genome[p.gene_idx]) for p in pos_b if genome[p.gene_idx] >= 0]
+    sids_a = [(p.gene_idx, genome[p.gene_idx]) for p in pos_a if genome[p.gene_idx] >= 0 and p.gene_idx not in protected]
+    sids_b = [(p.gene_idx, genome[p.gene_idx]) for p in pos_b if genome[p.gene_idx] >= 0 and p.gene_idx not in protected]
     for idx, _ in sids_a:
         genome[idx] = -1
     for idx, _ in sids_b:
         genome[idx] = -1
-    empty_a = [p for p in pos_a if genome[p.gene_idx] < 0]
-    empty_b = [p for p in pos_b if genome[p.gene_idx] < 0]
+    empty_a = [p for p in pos_a if genome[p.gene_idx] < 0 and p.gene_idx not in protected]
+    empty_b = [p for p in pos_b if genome[p.gene_idx] < 0 and p.gene_idx not in protected]
     empty_a.sort(key=lambda p: p.effort)
     empty_b.sort(key=lambda p: p.effort)
     for i, (_, sid) in enumerate(sids_b):
@@ -365,19 +409,20 @@ def swap_layer_content(genome, positions, shortcut_pool, layer_positions=None, d
     for i, (_, sid) in enumerate(sids_a):
         if i < len(empty_b):
             genome[empty_b[i].gene_idx] = sid
-    _repair_layer_dupes(genome, positions, pos_a)
-    _repair_layer_dupes(genome, positions, pos_b)
+    _repair_layer_dupes(genome, positions, pos_a, protected)
+    _repair_layer_dupes(genome, positions, pos_b, protected)
     return genome
 
 
-def _repair_layer_dupes(genome, positions, layer_pos_list):
+def _repair_layer_dupes(genome, positions, layer_pos_list, protected=None):
     """Remove same-layer duplicates created by layer swaps."""
+    protected = protected or set()
     seen = set()
     for p in layer_pos_list:
         sid = genome[p.gene_idx]
         if sid < 0:
             continue
-        if sid in seen:
+        if sid in seen and p.gene_idx not in protected:
             genome[p.gene_idx] = -1
         else:
             seen.add(sid)
@@ -396,7 +441,8 @@ def redistribute_shortcuts(genome, positions, shortcut_pool, layer_positions=Non
     dst_layer = random.choice([l for l in layers if l != src_layer])
     src_pos = layer_positions[src_layer]
     dst_pos = layer_positions[dst_layer]
-    movable = [p for p in src_pos if genome[p.gene_idx] >= 0 and p.gene_idx not in protected]
+    movable = [p for p in src_pos if genome[p.gene_idx] >= 0 and p.gene_idx not in protected
+                and not _find_group_members_at(genome, positions, shortcut_pool, p.gene_idx)]
     empty_dst = [p for p in dst_pos if genome[p.gene_idx] < 0]
     if not movable or not empty_dst:
         return genome
@@ -510,15 +556,14 @@ def pmx_crossover(parent1, parent2, positions, layer_positions=None, pool=None, 
     return child1, child2
 
 
-def _repair_duplicates_on_layer(genome, layer_indices):
+def _repair_duplicates_on_layer(genome, layer_indices, protected=None):
+    protected = protected or set()
     seen = set()
-    dupes = []
     for i in layer_indices:
         sid = genome[i]
         if sid < 0:
             continue
-        if sid in seen:
-            dupes.append(i)
+        if sid in seen and i not in protected:
             genome[i] = -1
         else:
             seen.add(sid)

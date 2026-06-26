@@ -33,6 +33,7 @@
     "momentary_redundancy": 8.0,
     "mouse_layer_bonus": 5.0,
     "app_coherence": 4.0,
-    "mouse_accessibility": 6.0
+    "mouse_accessibility": 6.0,
+    "layer_switch_penalty": 0.5
   }
 }

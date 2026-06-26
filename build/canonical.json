@@ -1306,12 +1306,14 @@
         "1:2": {
           "x": 1,
           "y": 2,
-          "label": "←",
+          "label": "Search",
           "behavior": "Key Press",
-          "parameter": "LeftArrow",
-          "modifiers": [],
-          "purpose": "Navigation key for cursor/page movement.",
-          "usage_notes": "Sends LeftArrow."
+          "parameter": "S",
+          "modifiers": [
+            "L GUI"
+          ],
+          "purpose": "v1.9: Left-hand Win+S Windows Search: hold Nav thumb + tap A position.",
+          "usage_notes": "Sends L GUI+S."
         },
         "2:2": {
           "x": 2,
@@ -1358,14 +1360,12 @@
         "7:2": {
           "x": 7,
           "y": 2,
-          "label": "Search",
+          "label": "←",
           "behavior": "Key Press",
-          "parameter": "S",
-          "modifiers": [
-            "L GUI"
-          ],
-          "purpose": "v1.9: Left-hand Win+S Windows Search: hold Nav thumb + tap A position.",
-          "usage_notes": "Sends L GUI+S."
+          "parameter": "LeftArrow",
+          "modifiers": [],
+          "purpose": "Navigation key for cursor/page movement.",
+          "usage_notes": "Sends LeftArrow."
         },
         "8:2": {
           "x": 8,
@@ -8091,10 +8091,12 @@
       "x": 1,
       "y": 2,
       "behavior": "Key Press",
-      "label": "←",
-      "parameter": "Keyboard LeftArrow",
-      "modifiers": [],
-      "rationale": "v2.5-reorg: swapped with ← for better ergonomics (effort 4→2)",
+      "label": "Search",
+      "parameter": "S",
+      "modifiers": [
+        "L GUI"
+      ],
+      "rationale": "Moved Win+S here to unify arrow group at (7-10,2)",
       "studioSkip": false
     },
     {
@@ -8148,12 +8150,10 @@
       "x": 7,
       "y": 2,
       "behavior": "Key Press",
-      "label": "Search",
-      "parameter": "S",
-      "modifiers": [
-        "L GUI"
-      ],
-      "rationale": "v2.5-reorg: swapped with Search for better ergonomics",
+      "label": "←",
+      "parameter": "Keyboard LeftArrow",
+      "modifiers": [],
+      "rationale": "Moved LeftArrow here to complete arrow group at (7-10,2)",
       "studioSkip": false
     },
     {

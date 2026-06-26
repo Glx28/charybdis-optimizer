@@ -134,7 +134,6 @@ class FitnessEvaluator:
         self._build_conjunction_data()
         self._build_distance_matrix()
 
-        from .representation import LAYER_ACCESS
         self.toggled_layers = {
             layer for layer, info in LAYER_ACCESS.items()
             if info.get("method") == "toggled"

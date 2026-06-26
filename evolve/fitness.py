@@ -16,7 +16,7 @@ from representation import (
     Position, Shortcut, LAYER_APP_CONTEXT, KEY_GROUPS,
     FINGER_MAP, THUMB_HAND, LEFT_COLS, RIGHT_COLS,
     KNOWN_KEY_NAMES, LAYER_ACCESS, build_layer_to_positions,
-    discover_dynamic_groups,
+    discover_dynamic_groups, is_universal_shortcut,
 )
 
 
@@ -95,10 +95,70 @@ class FitnessEvaluator:
         self._build_distance_matrix()
 
         self.toggled_layers = {5, 9, 10}
-        self.momentary_layers = {1, 3, 4}
+        self.momentary_layers = {1, 2, 3, 4}
+        self._build_thumb_busy_penalty()
+        self._build_layer_importance_multipliers()
+        self.base_accessible_sids = self._find_base_accessible()
         self._build_zmk_compat()
         self._build_layer_context_mask()
         self._build_thumb_vectors()
+        self._build_original_dupe_exempt()
+        self._build_l2_mouse_protection()
+        self._build_toggled_layer_effort()
+        self._build_toggled_base_requirement()
+        self._build_l0_only_base_keys()
+        self._build_app_coherence_data()
+        self._build_mouse_accessibility_data()
+
+    def _find_base_accessible(self):
+        """Shortcuts reachable on Layer 0 without any layer activation.
+        L0 has: letters, numbers, punctuation, Ctrl, Shift, Alt, Enter,
+        Tab, Escape, Delete, Space. L0 does NOT have: F-keys, arrow keys,
+        Home/End/PgUp/PgDn, Insert, PrintScreen, or Win/Super key."""
+        # Keys physically present on L0
+        l0_keys = set('abcdefghijklmnopqrstuvwxyz')
+        l0_keys.update(set('0123456789'))
+        l0_mods = {'ctrl', 'shift', 'alt'}  # no Win/Super on L0
+        l0_special = {'Delete', 'Escape', 'Enter', 'Tab', 'Space'}
+
+        base = set()
+        for s in self.pool:
+            k = s.keys
+            # Parse the shortcut to check all parts are on L0
+            parts = k.replace('+', ' ').split()
+            mods_needed = set()
+            base_key = parts[-1] if parts else k
+
+            for p in parts[:-1]:
+                mods_needed.add(p.lower())
+
+            # Check: are all required modifiers on L0?
+            if not mods_needed.issubset(l0_mods):
+                continue  # e.g. Win+X — Win not on L0
+
+            # Check: is the base key on L0?
+            if base_key.lower() in l0_keys:
+                base.add(s.sid)
+            elif base_key in l0_special:
+                base.add(s.sid)
+            # F-keys, arrows, Home/End/PgUp/PgDn — NOT on L0
+
+        return base
+
+    def _shortcut_complexity(self, sid):
+        """Effort multiplier for pressing a shortcut on L0.
+        1 key = 1.0, 2 keys (Ctrl+C) = 1.0, 3 keys (Ctrl+Shift+K) = 1.8,
+        4+ keys = 2.5+. Reflects the physical and cognitive difficulty of
+        holding multiple modifiers simultaneously."""
+        s = self.pool[sid]
+        parts = s.keys.replace('+', ' ').split()
+        n = len(parts)
+        if n <= 2:
+            return 1.0
+        elif n == 3:
+            return 1.8
+        else:
+            return 2.5
 
     def _build_conjunction_data(self):
         sid_lookup = {s.keys: s.sid for s in self.pool}
@@ -145,24 +205,190 @@ class FitnessEvaluator:
                     self.zmk_incompat_arr[s.sid] = 1.0
 
     def _build_layer_context_mask(self):
-        """Build per-position violation mask: pos_violation_mask[i, sid] = 1.0 if sid on position i is a violation."""
+        """Layer context is no longer hardcoded. App coherence emerges from
+        conjunction pairs and the app-coherence reward. The pos_violation matrix
+        is zeroed — no per-position app-based violations."""
         S = self.n_shortcuts
-
-        layer_allowed_apps = {}
-        for layer, apps in LAYER_APP_CONTEXT.items():
-            layer_allowed_apps[layer] = set(apps)
-
-        # pos_violation[i, sid] = 1.0 if placing sid at position i violates layer context
-        # A shortcut is valid if ANY of its apps match the layer's allowed apps
         self.pos_violation = np.zeros((self.n_positions, S + 1), dtype=np.float32)
-        for i, pos in enumerate(self.positions):
-            allowed = layer_allowed_apps.get(pos.layer)
-            if allowed is None:
+
+    def _build_app_coherence_data(self):
+        """Precompute per-shortcut app sets for the app-coherence reward.
+        Shortcuts sharing an app on the same layer get a bonus, naturally
+        creating layer themes without hardcoded LAYER_APP_CONTEXT."""
+        self.shortcut_app_sets = {}
+        for s in self.pool:
+            if s.category == "base_key":
                 continue
+            self.shortcut_app_sets[s.sid] = set(s.apps) if s.apps else {s.app}
+
+    def _build_mouse_accessibility_data(self):
+        """Precompute mouse button SIDs and ideal L2 left-hand positions for
+        the mouse accessibility reward. MB1/2/3 get strong reward for being
+        on L2, left hand, low effort, and grouped together."""
+        self.mouse_button_sids = {}  # maps mb number to sid
+        for s in self.pool:
+            if 'select:mb' in s.keys:
+                mb_num = s.keys.replace('_base_select:mb', '')
+                self.mouse_button_sids[mb_num] = s.sid
+        self.l2_left_low_effort = []
+        for i, p in enumerate(self.positions):
+            if p.layer == 2 and p.hand == "left" and p.effort <= 3:
+                self.l2_left_low_effort.append(i)
+
+    def _build_thumb_busy_penalty(self):
+        """Extra effort for thumb-cluster keys on momentary layers where the
+        same-hand thumb is busy holding the layer key.
+
+        Penalty tiers:
+        - Same x-column as hold key: +5.0 (physically the same key, impossible)
+        - Same hand, different column: +2.0 (awkward but reachable)
+        - momentary_or_locked layers (L2): half penalty (user often toggles)
+        """
+        # Derive hold key x-column from current genome: find where coach_l*_hold sits on L0
+        hold_key_x = {}
+        layer_hold_names = {1: 'coach_l1_hold', 2: 'coach_l2_hold',
+                            3: 'coach_l3_hold', 4: 'coach_l4_hold'}
+        if self.current_genome is not None:
+            for i, pos in enumerate(self.positions):
+                if pos.layer != 0 or not pos.is_thumb:
+                    continue
+                sid = self.current_genome[i]
+                if sid < 0:
+                    continue
+                key_name = self.pool[sid].keys
+                for layer_num, hold_name in layer_hold_names.items():
+                    if key_name == f'_base_{hold_name}':
+                        hold_key_x[layer_num] = pos.x
+
+        N = self.n_positions
+        self.thumb_busy_extra = np.zeros(N, dtype=np.float32)
+        for i, pos in enumerate(self.positions):
+            if not pos.is_thumb:
+                continue
+            access = LAYER_ACCESS.get(pos.layer)
+            if not access or access["method"] not in ("momentary", "momentary_or_locked"):
+                continue
+            thumb_hand = access.get("thumb")
+            if thumb_hand is None:
+                continue
+            pos_hand = THUMB_HAND.get(pos.x)
+            if pos_hand != thumb_hand:
+                continue
+            hx = hold_key_x.get(pos.layer)
+            if hx is not None and pos.x == hx:
+                penalty = 5.0  # same physical key as hold
+            else:
+                penalty = 2.0  # adjacent thumb, awkward
+            if access["method"] == "momentary_or_locked":
+                penalty *= 0.5  # user often locks L2
+            self.thumb_busy_extra[i] = penalty
+
+    def _build_layer_importance_multipliers(self):
+        """Per-position importance multiplier based on layer context.
+        L2 (Mouse) is one-handed mode: left hand does everything while right
+        hand is on trackball. Left-hand shortcuts get 2.5x importance,
+        right-hand gets 0.5x (user can't easily reach them)."""
+        N = self.n_positions
+        self.layer_imp_mult = np.ones(N, dtype=np.float32)
+        mouse_bonus_w = self.weights.get("mouse_layer_bonus", 5.0)
+        for i, pos in enumerate(self.positions):
+            if pos.layer == 2:
+                if pos.hand == "left":
+                    self.layer_imp_mult[i] = 2.5
+                else:
+                    self.layer_imp_mult[i] = 0.5
+
+    def _build_original_dupe_exempt(self):
+        """Track same-layer (layer, sid) pairs that are intentionally duplicated.
+        Only mouse buttons on L2 are truly intentional (MB1 x3 for left/right/thumb).
+        Everything else — coach keys, shortcuts — should be evaluated on merit."""
+        self.original_layer_sid_counts = {}
+        if self.current_genome is not None:
+            from collections import Counter
+            mouse_sids = set()
             for s in self.pool:
-                shortcut_apps = set(s.apps) if s.apps else {s.app}
-                if not shortcut_apps & allowed:
-                    self.pos_violation[i, s.sid] = 1.0
+                if 'select:mb' in s.keys:
+                    mouse_sids.add(s.sid)
+            for layer in set(p.layer for p in self.positions):
+                layer_sids = []
+                for i, sid in enumerate(self.current_genome):
+                    if sid >= 0 and self.positions[i].layer == layer:
+                        layer_sids.append(int(sid))
+                counts = Counter(layer_sids)
+                for sid, cnt in counts.items():
+                    if cnt > 1 and sid in mouse_sids:
+                        self.original_layer_sid_counts[(layer, sid)] = cnt
+
+    def _build_l2_mouse_protection(self):
+        """Identify L2 mouse button positions and essential clipboard shortcuts.
+        These must resist displacement because L2 is one-handed mouse mode."""
+        self.l2_protected_sids = set()
+        self.l2_protected_positions = set()
+        if self.current_genome is None:
+            return
+        for i, sid in enumerate(self.current_genome):
+            if sid < 0 or self.positions[i].layer != 2:
+                continue
+            s = self.pool[sid]
+            is_mouse_button = 'select:mb' in s.keys
+            is_clipboard = s.keys in ('Ctrl+C', 'Ctrl+V', 'Ctrl+Z', 'Ctrl+X', 'Ctrl+A')
+            if is_mouse_button or is_clipboard:
+                self.l2_protected_sids.add(sid)
+                self.l2_protected_positions.add(i)
+
+    def _build_toggled_layer_effort(self):
+        """Add extra effort cost for toggled layers (L5, L9, L10).
+        Toggled layers cost 3 keypresses for isolated use (toggle on, press, toggle off).
+        Momentary layers cost 0 extra (thumb hold is already modeled)."""
+        N = self.n_positions
+        self.toggled_layer_extra = np.zeros(N, dtype=np.float32)
+        for i, pos in enumerate(self.positions):
+            access = LAYER_ACCESS.get(pos.layer)
+            if access and access["method"] == "toggled":
+                self.toggled_layer_extra[i] = 1.0  # +1.0 on top of existing effort
+
+    def _build_toggled_base_requirement(self):
+        """Precompute: for each toggled layer, which thumb positions exist and
+        which SIDs are coach_base/coach_recover_base (return-to-L0 keys)."""
+        self.toggled_thumb_indices = {}  # layer -> list of thumb position indices
+        self.coach_base_sids = set()
+        for s in self.pool:
+            if s.keys in ('_base_coach_base', '_base_coach_recover_base'):
+                self.coach_base_sids.add(s.sid)
+        for layer in self.toggled_layers:
+            thumbs = [i for i, p in enumerate(self.positions)
+                      if p.layer == layer and p.is_thumb]
+            if thumbs:
+                self.toggled_thumb_indices[layer] = thumbs
+
+    # Base keys that only make sense on L0 — letters, numbers, basic punctuation.
+    # These produce a character when pressed and serve no purpose on layers.
+    _L0_ONLY_PATTERNS = {
+        '_base_a', '_base_b', '_base_c', '_base_d', '_base_e', '_base_f',
+        '_base_g', '_base_h', '_base_i', '_base_j', '_base_k', '_base_l',
+        '_base_m', '_base_n', '_base_o', '_base_p', '_base_q', '_base_r',
+        '_base_s', '_base_t', '_base_u', '_base_v', '_base_w', '_base_x',
+        '_base_y', '_base_z',
+        '_base_1', '_base_2', '_base_3', '_base_4', '_base_5',
+        '_base_6', '_base_7', '_base_8', '_base_9', '_base_0',
+        '_base_comma', '_base_period', '_base_semicolon',
+        '_base_forwardslash', '_base_backslash',
+        '_base_left brace', '_base_left apos',
+        '_base_coach_l1_hold', '_base_coach_l2_hold',
+        '_base_coach_l3_hold', '_base_coach_l4_hold',
+    }
+
+    def _build_l0_only_base_keys(self):
+        """Mark base keys that only belong on L0 (letters, numbers, punctuation).
+        Defined by key identity, not current placement."""
+        self.l0_only_sids = set()
+        for s in self.pool:
+            if s.keys in self._L0_ONLY_PATTERNS:
+                self.l0_only_sids.add(s.sid)
+        S = self.n_shortcuts
+        self.l0_only_arr = np.zeros(S + 1, dtype=np.float32)
+        for sid in self.l0_only_sids:
+            self.l0_only_arr[sid] = 1.0
 
     def _build_thumb_vectors(self):
         """Per-position weights for thumb scoring."""
@@ -193,11 +419,64 @@ class FitnessEvaluator:
         self.t_hand = torch.tensor(self.hand_arr, device=d, dtype=torch.long)
         self.t_layer = torch.tensor(self.layer_arr, device=d, dtype=torch.long)
         self.t_is_thumb = torch.tensor(self.is_thumb_arr, device=d)
+        self.t_x_arr = torch.tensor(self.x_arr, device=d, dtype=torch.long)
+        self.t_y_arr = torch.tensor(self.y_arr, device=d, dtype=torch.long)
         self.t_dist_matrix = torch.tensor(self.dist_matrix, device=d)
         self.t_zmk_incompat = torch.tensor(self.zmk_incompat_arr, device=d)
         self.t_pos_violation = torch.tensor(self.pos_violation, device=d)
+
+        # App coherence GPU data: primary app ID per shortcut
+        unique_apps = sorted(set(app for apps in self.shortcut_app_sets.values() for app in apps))
+        app_to_id = {app: i for i, app in enumerate(unique_apps)}
+        self._n_unique_apps = len(unique_apps)
+        primary_app_arr = np.full(S + 1, -1, dtype=np.int64)
+        for sid, apps in self.shortcut_app_sets.items():
+            primary_app_arr[sid] = app_to_id[next(iter(apps))]
+        self.t_primary_app_id = torch.tensor(primary_app_arr, device=d, dtype=torch.long)
         self.t_thumb_filled_w = torch.tensor(self.thumb_filled_weight, device=d)
         self.t_thumb_empty_w = torch.tensor(self.thumb_empty_weight, device=d)
+        self.t_layer_imp_mult = torch.tensor(self.layer_imp_mult, device=d)
+        self.t_thumb_busy_extra = torch.tensor(self.thumb_busy_extra, device=d)
+        self.t_toggled_extra = torch.tensor(self.toggled_layer_extra, device=d)
+
+        # L2 mouse/clipboard protection mask for GPU learning curve
+        l2_prot = np.zeros(N, dtype=np.float32)
+        for idx in self.l2_protected_positions:
+            l2_prot[idx] = 1.0
+        self.t_l2_protected = torch.tensor(l2_prot, device=d)
+
+        # 3-tier shortcut tier multipliers for GPU learning curve
+        # tier_mult[sid]: 0.3 for simple L0-accessible, 1.0 for complex L0-accessible, 1.5 for layer-only
+        tier_mult = np.ones(S + 1, dtype=np.float32)
+        for s in self.pool:
+            if s.sid in self.base_accessible_sids and self._shortcut_complexity(s.sid) <= 1.0:
+                tier_mult[s.sid] = 0.3
+            elif s.sid not in self.base_accessible_sids:
+                tier_mult[s.sid] = 1.5
+        self.t_tier_mult = torch.tensor(tier_mult, device=d)
+
+        # For momentary redundancy: mask of complex (3+ key) base-accessible shortcuts
+        complex_base = np.zeros(S + 1, dtype=np.float32)
+        for s in self.pool:
+            if s.sid in self.base_accessible_sids and self._shortcut_complexity(s.sid) >= 1.8:
+                complex_base[s.sid] = 1.0
+        self.t_complex_base = torch.tensor(complex_base, device=d)
+
+        # Complexity discount per shortcut (S+1 sentinel)
+        complexity_arr = np.ones(S + 1, dtype=np.float32)
+        for s in self.pool:
+            complexity_arr[s.sid] = 1.0 / self._shortcut_complexity(s.sid)
+        self.t_complexity_discount = torch.tensor(complexity_arr, device=d)
+
+        # Base key mask for learning curve scaling on non-L0 layers
+        is_base_key = np.zeros(S + 1, dtype=np.float32)
+        for s in self.pool:
+            if s.category == 'base_key':
+                is_base_key[s.sid] = 1.0
+        self.t_is_base_key = torch.tensor(is_base_key, device=d)
+
+        # L0-only base keys: letters/numbers that should never appear on non-L0 layers
+        self.t_l0_only = torch.tensor(self.l0_only_arr, device=d)
 
         # Conjunction pair tensors
         if len(self.conj_pairs) > 0:
@@ -229,6 +508,11 @@ class FitnessEvaluator:
         for l in self.unique_layers:
             layer_masks[l] = torch.tensor(self.layer_arr == l, device=d, dtype=torch.bool)
         self.t_layer_masks = layer_masks
+
+        # Original duplicate exemption per (layer, sid)
+        self.t_original_dupe_counts = {}
+        for (layer, sid), cnt in self.original_layer_sid_counts.items():
+            self.t_original_dupe_counts[(layer, sid)] = cnt
 
         # Precompute group SIDs for GPU group-split checking
         self._gpu_group_sids = []
@@ -268,8 +552,12 @@ class FitnessEvaluator:
         # ── EFFORT ──
         imp = self.t_importance[t_g]        # (B, N)
         usage = self.t_usage_boost[t_g]     # (B, N)
-        eff = self.t_effort.unsqueeze(0)    # (1, N)
-        weighted = eff * imp * usage * assigned_f
+        eff = (self.t_effort + self.t_thumb_busy_extra + self.t_toggled_extra).unsqueeze(0)  # (1, N)
+        layer_mult = self.t_layer_imp_mult.unsqueeze(0)  # (1, N)
+        # Quadratic effort scaling for important shortcuts: e^1.5 for imp>=7, e^2 for imp>=9
+        eff_scaled = torch.where(imp >= 9.0, eff ** 2.0,
+                     torch.where(imp >= 7.0, eff ** 1.5, eff))
+        weighted = eff_scaled * imp * usage * layer_mult * assigned_f
         effort_raw = weighted.sum(dim=1) * self.weights.get("effort", 1.0)
 
         # Finger balance: load per finger, variance
@@ -326,9 +614,64 @@ class FitnessEvaluator:
             cur_sids_e = cur_t_e.clone()
             cur_sids_e[cur_sids_e < 0] = S
             cur_imp_e = self.t_importance[cur_sids_e]
-            unassign_effort += (removed_e.float() * (2.0 + cur_imp_e.unsqueeze(0).pow(2) * 1.0)).sum(dim=1)
+            unassign_effort += (removed_e.float() * (3.0 + cur_imp_e.unsqueeze(0).pow(2) * 1.5)).sum(dim=1)
 
-        effort_total = effort_raw + finger_balance + sfp + unassign_effort
+        # Learning curve: penalize changes from current layout
+        lc = torch.zeros(B, device=d)
+        if self.current_genome is not None:
+            cur_t_lc = torch.tensor(self.current_genome, device=d, dtype=torch.long)
+            cur_sids_lc = cur_t_lc.clone()
+            cur_sids_lc[cur_sids_lc < 0] = S
+            cur_imp_lc = self.t_importance[cur_sids_lc]  # (N,)
+            changed = (t_g != cur_t_lc.unsqueeze(0))  # (B, N)
+            cur_had = (cur_t_lc >= 0).unsqueeze(0)  # (1, N)
+            now_has = assigned  # (B, N)
+            # Swaps: both had and have something, but different
+            swapped = changed & cur_had & now_has  # (B, N)
+            imp_sq = cur_imp_lc.unsqueeze(0).pow(2)
+            swap_cost = (1.0 + cur_imp_lc.unsqueeze(0) * 0.5 + imp_sq * 0.01) * swapped.float()
+            # L2 mouse/clipboard protection
+            swap_cost += (cur_imp_lc.unsqueeze(0) * 100.0) * (swapped.float() * self.t_l2_protected.unsqueeze(0))
+            # 3-tier multiplier
+            is_l2 = (self.t_layer == 2).unsqueeze(0).float()
+            tier_per_pos = self.t_tier_mult[cur_sids_lc].unsqueeze(0)  # (1, N)
+            tier_adjusted = torch.where(is_l2 > 0, torch.ones_like(tier_per_pos), tier_per_pos)
+            swap_cost *= tier_adjusted
+            # Base keys on non-L0 layers get 0.5× learning curve
+            is_l0 = (self.t_layer == 0).unsqueeze(0)  # (1, N)
+            is_base = self.t_is_base_key[cur_sids_lc].unsqueeze(0)  # (1, N)
+            base_on_layer = (~is_l0).float() * is_base * swapped.float()
+            swap_cost *= (1.0 - base_on_layer * 0.5)  # multiply by 0.5 where base_on_layer
+            # Nearby displacement discount: if old sid moved to nearby same-layer pos, 80% off
+            # Skip L0 (touch typing muscle memory) and L2 protected positions (mouse buttons)
+            sid_pos_lc = torch.full((B, S + 1), N, device=d, dtype=torch.long)
+            pos_idx = torch.arange(N, device=d).unsqueeze(0).expand(B, -1)
+            sid_pos_lc.scatter_(1, t_g, pos_idx)
+            old_sids_exp = cur_sids_lc.unsqueeze(0).expand(B, -1).long()  # (B, N)
+            new_pos_of_old = sid_pos_lc.gather(1, old_sids_exp)  # (B, N)
+            new_pos_clamp = new_pos_of_old.clamp(max=N-1)
+            same_layer_near = (self.t_layer[new_pos_clamp] == self.t_layer.unsqueeze(0)) & (new_pos_of_old < N)
+            manhattan = (self.t_x_arr[new_pos_clamp] - self.t_x_arr.unsqueeze(0)).abs() + \
+                        (self.t_y_arr[new_pos_clamp] - self.t_y_arr.unsqueeze(0)).abs()
+            not_self = (new_pos_of_old != pos_idx)
+            not_l0 = (~is_l0).float()  # (1, N)
+            not_l2_prot = (1.0 - self.t_l2_protected.unsqueeze(0))  # (1, N)
+            nearby_discount = (same_layer_near & (manhattan <= 3) & not_self & swapped).float()
+            nearby_discount *= not_l0 * not_l2_prot
+            swap_cost *= (1.0 - nearby_discount * 0.8)  # multiply by 0.2 where nearby
+            # Removals: had something, now empty
+            removed_lc = changed & cur_had & ~now_has
+            remove_cost = (3.0 + cur_imp_lc.unsqueeze(0) * 1.0 + imp_sq * 0.02) * removed_lc.float()
+            remove_cost += (cur_imp_lc.unsqueeze(0) * 150.0) * (removed_lc.float() * self.t_l2_protected.unsqueeze(0))
+            # Additions: was empty, now has something
+            added = changed & ~cur_had & now_has
+            add_cost = 0.3 * added.float()
+            lc = (swap_cost + remove_cost + add_cost).sum(dim=1)
+        lc *= self.weights.get("learning_curve", 0.5)
+
+        # Placement reward: placing important shortcuts reduces net effort
+        placement_reward = (imp * assigned_f * 8.0).sum(dim=1)
+        effort_total = effort_raw + finger_balance + sfp + unassign_effort + lc - placement_reward
 
         # ── ADJACENCY ──
         # For each conjunction pair (a,b,w): look up where a and b are placed,
@@ -365,8 +708,97 @@ class FitnessEvaluator:
         thumb_empty = (1.0 - assigned_f) * self.t_thumb_empty_w.unsqueeze(0)
         thumb_util = thumb_filled.sum(dim=1) + thumb_empty.sum(dim=1)
 
+        # Cross-layer consistency: reward same sid at same physical position across layers
+        cl_bonus = torch.zeros(B, device=d)
+        # Build (x,y) per position as a unique coord id
+        coord_ids = self.t_x_arr * 100 + self.t_y_arr  # unique coord per physical position
+        for sid_val in range(S):
+            sid_mask = (t_g == sid_val)  # (B, N)
+            count = sid_mask.sum(dim=1)  # (B,)
+            multi = (count >= 2)
+            if not multi.any():
+                continue
+            # Check if all positions with this sid share the same coord
+            # For each genome, gather coords where sid appears
+            sid_coords = sid_mask.float() * coord_ids.unsqueeze(0).float()  # (B, N)
+            # Unique coords: if all same, variance is 0
+            # Approximate: check if min == max of non-zero coords
+            big_val = 99999.0
+            masked_min = torch.where(sid_mask, sid_coords, torch.tensor(big_val, device=d)).min(dim=1).values
+            masked_max = torch.where(sid_mask, sid_coords, torch.tensor(-1.0, device=d)).max(dim=1).values
+            same_coord = (masked_min == masked_max) & multi
+            cl_bonus += same_coord.float() * count.float() * 2.0
+
+        # Trackball proximity (simplified: right-hand mouse layer bonus)
+        tb_bonus = torch.zeros(B, device=d)
+        mouse_layer_mask = (self.t_layer == 2).unsqueeze(0) & (self.t_hand.unsqueeze(0) == 1) & assigned
+        tb_bonus = (mouse_layer_mask.float() * imp * 0.2).sum(dim=1)
+
+        # App coherence: reward shortcuts sharing primary app on same layer
+        ac_bonus = torch.zeros(B, device=d)
+        if hasattr(self, 't_primary_app_id'):
+            app_ids_per_pos = self.t_primary_app_id[t_g]  # (B, N)
+            for l in self.unique_layers:
+                if l not in self.t_layer_masks:
+                    continue
+                lmask = self.t_layer_masks[l].unsqueeze(0) & assigned  # (B, N)
+                for app_id in range(self._n_unique_apps):
+                    app_on_layer = lmask & (app_ids_per_pos == app_id)
+                    count = app_on_layer.float().sum(dim=1)  # (B,)
+                    imp_sum = (app_on_layer.float() * imp).sum(dim=1)
+                    has_cluster = (count >= 2).float()
+                    avg_imp = imp_sum / count.clamp(min=1)
+                    ac_bonus += has_cluster * count * avg_imp * 0.3
+
+        # Mouse accessibility: reward functional one-handed mouse mode
+        ma_bonus = torch.zeros(B, device=d)
+        mb_weights = {'1': 2.0, '2': 1.5, '3': 1.0, '4': 0.3, '5': 0.3}
+        is_l2 = (self.t_layer == 2).unsqueeze(0)
+        is_left = (self.t_hand.unsqueeze(0) == 0)
+        low_eff = (self.t_effort <= 2).unsqueeze(0)
+        med_eff = ((self.t_effort > 2) & (self.t_effort <= 3)).unsqueeze(0)
+
+        l2_mb_count = torch.zeros(B, device=d)
+        for mb_num, mb_w in mb_weights.items():
+            mb_sid = self.mouse_button_sids.get(mb_num)
+            if mb_sid is None:
+                continue
+            mb_mask = (t_g == mb_sid) & assigned
+            has_any = mb_mask.any(dim=1).float()
+            on_l2 = mb_mask & is_l2
+            on_l2_left = on_l2 & is_left
+
+            if mb_num in ('1', '2', '3'):
+                ma_bonus -= (1.0 - has_any) * 40.0 * mb_w
+                l2_mb_count += on_l2.any(dim=1).float()
+                # Heavy penalty for MB1/2/3 on L2 right hand (can't reach during mouse mode)
+                on_l2_right = on_l2 & ~is_left
+                ma_bonus -= on_l2_right.any(dim=1).float() * 30.0 * mb_w
+
+            # Best-placement reward (approximate: use sum, CPU uses max)
+            ma_bonus += on_l2.float().sum(dim=1) * 8.0 * mb_w
+            ma_bonus += on_l2_left.float().sum(dim=1) * 6.0 * mb_w
+            ma_bonus += (on_l2_left & low_eff).float().sum(dim=1) * 4.0 * mb_w
+            ma_bonus += (on_l2_left & med_eff).float().sum(dim=1) * 2.0 * mb_w
+
+        ma_bonus += (l2_mb_count >= 3).float() * 15.0
+        ma_bonus += ((l2_mb_count >= 2) & (l2_mb_count < 3)).float() * 5.0
+
+        l2_left_filled = (assigned & is_l2 & is_left).float().sum(dim=1)
+        ma_bonus += l2_left_filled.clamp(max=15) * 1.5
+
+        for clip_key in ['Ctrl+C', 'Ctrl+V', 'Ctrl+Z', 'Ctrl+X']:
+            clip_sids = [s.sid for s in self.pool if s.keys == clip_key]
+            if clip_sids:
+                clip_mask = (t_g == clip_sids[0]) & assigned & is_l2 & is_left
+                ma_bonus += clip_mask.any(dim=1).float() * 6.0
+
         adj_total = adj_scores * self.weights.get("adjacency", 1.5) + \
-                    thumb_util * self.weights.get("thumb_utilization", 3.0)
+                    thumb_util * self.weights.get("thumb_utilization", 3.0) + \
+                    cl_bonus * self.weights.get("cross_layer_consistency", 2.0) + \
+                    tb_bonus * self.weights.get("trackball_proximity", 1.5) + \
+                    ac_bonus * self.weights.get("app_coherence", 3.0) + \
+                    ma_bonus * self.weights.get("mouse_accessibility", 5.0)
 
         # ── VIOLATIONS ──
         # Layer context: gather from precomputed violation matrix, weighted by importance
@@ -378,17 +810,28 @@ class FitnessEvaluator:
         # ZMK compat
         zmk_viol = (self.t_zmk_incompat[t_g] * assigned_f).sum(dim=1)
 
-        # Duplicates per layer (importance-weighted, matching CPU path)
+        # Duplicates per layer (importance-weighted, exempting original layout duplicates)
         dupe_viol = torch.zeros(B, device=d)
         for l in self.unique_layers:
             lmask = self.t_layer_masks[l].unsqueeze(0) & assigned  # (B, N)
             layer_sids = t_g.clone()
             layer_sids[~lmask] = S  # sentinel
-            sorted_sids, _ = layer_sids.sort(dim=1)
-            consecutive_eq = (sorted_sids[:, 1:] == sorted_sids[:, :-1]) & (sorted_sids[:, 1:] < S)
-            # Importance-weighted: 1.0 + imp^2 * 0.5 per duplicate
-            dupe_imp = self.t_importance[sorted_sids[:, 1:]]
-            dupe_penalty = (1.0 + dupe_imp.pow(2) * 0.5) * consecutive_eq.float()
+
+            # Count occurrences per sid on this layer: (B, S+1)
+            sid_counts = torch.zeros(B, S + 1, device=d)
+            sid_counts.scatter_add_(1, layer_sids, torch.ones(B, N, device=d))
+
+            # Allowed count per sid: 1 normally, or original count if intentionally duplicated
+            allowed = torch.ones(S + 1, device=d)
+            for (el, esid), ecnt in self.t_original_dupe_counts.items():
+                if el == l:
+                    allowed[esid] = ecnt
+
+            # Excess = count - allowed; only penalize new duplicates beyond original
+            excess = (sid_counts - allowed.unsqueeze(0)).clamp(min=0)  # (B, S+1)
+            excess[:, S] = 0  # sentinel
+            dupe_imp = self.t_importance[:S+1]
+            dupe_penalty = excess * (1.0 + dupe_imp.unsqueeze(0).pow(2) * 0.5)
             dupe_viol += dupe_penalty.sum(dim=1)
 
         # Unassignment penalty: quadratic importance scaling
@@ -401,7 +844,7 @@ class FitnessEvaluator:
             cur_sids = cur_t.clone()
             cur_sids[cur_sids < 0] = S
             cur_imp = self.t_importance[cur_sids]
-            unassign_viol = (removed.float() * (1.0 + cur_imp.unsqueeze(0).pow(2) * 0.3)).sum(dim=1)
+            unassign_viol = (removed.float() * (2.0 + cur_imp.unsqueeze(0).pow(2) * 0.8)).sum(dim=1)
 
         # Approximate group-split violations: check arrow group spatial split
         group_split_viol = torch.zeros(B, device=d)
@@ -426,15 +869,59 @@ class FitnessEvaluator:
                     has_group = (layer_count >= 2).float()
                     group_split_viol += has_group * 0.5  # mild penalty for any group
 
-        # Missing important shortcuts penalty (skip bare keys - they're on frozen base layer)
-        high_imp_sids = [s.sid for s in self.pool if s.importance >= 3.0 and s.modifiers]
+        # Missing important shortcuts penalty — all pool shortcuts on mutable layers
+        high_imp_sids = [s.sid for s in self.pool if s.importance >= 3.0]
+        med_imp_sids = [s.sid for s in self.pool if 1.0 <= s.importance < 3.0]
         missing_viol = torch.zeros(B, device=d)
         if high_imp_sids:
             hi_t = torch.tensor(high_imp_sids, device=d, dtype=torch.long)
-            hi_imp = self.t_importance[hi_t]  # (H,)
-            # Check if each high-imp sid is in each genome: (B, H)
-            present = (t_g.unsqueeze(2) == hi_t.unsqueeze(0).unsqueeze(0)).any(dim=1)  # (B, H)
-            missing_viol = ((~present).float() * hi_imp.unsqueeze(0) * 0.5).sum(dim=1)
+            hi_imp = self.t_importance[hi_t]
+            present = (t_g.unsqueeze(2) == hi_t.unsqueeze(0).unsqueeze(0)).any(dim=1)
+            missing_viol += ((~present).float() * (hi_imp * hi_imp).unsqueeze(0) * 0.5).sum(dim=1)
+        if med_imp_sids:
+            med_t = torch.tensor(med_imp_sids, device=d, dtype=torch.long)
+            med_imp = self.t_importance[med_t]
+            present_m = (t_g.unsqueeze(2) == med_t.unsqueeze(0).unsqueeze(0)).any(dim=1)
+            missing_viol += ((~present_m).float() * med_imp.unsqueeze(0) * 0.5).sum(dim=1)
+
+        # Momentary redundancy: penalize base-accessible shortcuts on momentary layers
+        # Complexity-aware: 3-key combos get reduced penalty (justified on layers)
+        COGNITIVE_SWITCH_COST = 1.5
+        base_sids = torch.tensor(sorted(self.base_accessible_sids), device=d, dtype=torch.long)
+        is_momentary = torch.zeros(N, device=d, dtype=torch.bool)
+        for l in self.momentary_layers:
+            if l in self.t_layer_masks:
+                is_momentary |= self.t_layer_masks[l]
+        is_base_accessible = (t_g.unsqueeze(2) == base_sids.unsqueeze(0).unsqueeze(0)).any(dim=2)
+        is_complex = (self.t_complex_base[t_g] > 0)  # 3+ key combos: skip redundancy penalty
+        redundant = assigned & is_momentary.unsqueeze(0) & is_base_accessible & ~is_complex
+        eff_over = (self.t_effort.unsqueeze(0) - COGNITIVE_SWITCH_COST).clamp(min=0) * 0.3 + 1.0
+        eff_under = torch.full_like(eff_over, 0.5)
+        per_pos = torch.where(self.t_effort.unsqueeze(0) >= COGNITIVE_SWITCH_COST, eff_over, eff_under)
+        complexity_disc = self.t_complexity_discount[t_g]  # (B, N)
+        redundancy_viol = (redundant.float() * per_pos * complexity_disc).sum(dim=1)
+
+        # Cross-layer duplicate: penalize shortcuts on 3+ layers
+        # For each unique layer, create a per-sid presence mask, then count layers per sid
+        cross_dupe_viol = torch.zeros(B, device=d)
+        unique_layers = sorted(set(int(x) for x in self.layer_arr))
+        if len(unique_layers) > 1:
+            # (B, N) -> per-layer presence: for each sid, is it on this layer?
+            # Encode as: for each layer, which sids are present (B, S)
+            sid_layer_count = torch.zeros(B, S, device=d)
+            for layer_id in unique_layers:
+                if layer_id not in self.t_layer_masks:
+                    continue
+                lmask = self.t_layer_masks[layer_id].unsqueeze(0) & assigned  # (B, N)
+                sids_on_layer = t_g.clone()
+                sids_on_layer[~lmask] = S  # sentinel
+                present = torch.zeros(B, S + 1, device=d)
+                present.scatter_(1, sids_on_layer.clamp(max=S), 1.0)
+                sid_layer_count += present[:, :S]
+            # Penalize sids on 3+ layers
+            excess = (sid_layer_count - 2).clamp(min=0)  # (B, S)
+            imp_penalty = 1.0 + self.t_importance[:S].unsqueeze(0) * 0.3  # (1, S)
+            cross_dupe_viol = (excess * imp_penalty).sum(dim=1)
 
         dupe_weight = self.weights.get("duplicate", 10.0)
         group_split_weight = self.weights.get("group_split", 50.0)
@@ -443,7 +930,27 @@ class FitnessEvaluator:
                      dupe_viol * dupe_weight + \
                      unassign_viol * self.weights.get("unassignment", 15.0) + \
                      missing_viol * self.weights.get("missing_important", 15.0) + \
-                     group_split_viol * group_split_weight
+                     group_split_viol * group_split_weight + \
+                     redundancy_viol * self.weights.get("momentary_redundancy", 5.0) + \
+                     cross_dupe_viol * self.weights.get("cross_layer_duplicate", 8.0)
+
+        # Toggled layer base requirement: penalize toggled layers without coach_base in thumb
+        toggled_base_viol = torch.zeros(B, device=d)
+        if self.toggled_thumb_indices and self.coach_base_sids:
+            base_sids = torch.tensor(sorted(self.coach_base_sids), device=d, dtype=torch.long)
+            for layer, thumb_idxs in self.toggled_thumb_indices.items():
+                tidx = torch.tensor(thumb_idxs, device=d, dtype=torch.long)
+                thumb_sids = t_g[:, tidx]  # (B, n_thumbs)
+                has_base = (thumb_sids.unsqueeze(2) == base_sids.unsqueeze(0).unsqueeze(0)).any(dim=2).any(dim=1)
+                toggled_base_viol += (~has_base).float() * 20.0
+        viol_total += toggled_base_viol * self.weights.get("violations", 10.0)
+
+        # L0-only base key displacement: letters/numbers on non-L0 layers
+        l0_only_flags = self.t_l0_only[t_g]  # (B, N) — 1.0 if L0-only key
+        not_l0_layer = (self.t_layer != 0).unsqueeze(0).float()  # (1, N)
+        displaced = l0_only_flags * not_l0_layer * assigned_f
+        l0_displace_viol = (displaced * (50.0 + imp * 2.0)).sum(dim=1)
+        viol_total += l0_displace_viol * self.weights.get("violations", 10.0)
 
         # Return as list of tuples
         e = effort_total.cpu().numpy()
@@ -486,7 +993,12 @@ class FitnessEvaluator:
         w = self.weights.get("effort", 1.0)
         mask = genome >= 0
         sids = np.clip(genome, 0, self.n_shortcuts)
-        total = (self.effort_arr * self.importance_arr[sids] * self.usage_boost[sids] * mask).sum()
+        eff_with_thumb = self.effort_arr + self.thumb_busy_extra + self.toggled_layer_extra
+        imp_vals = self.importance_arr[sids]
+        # Quadratic effort scaling for important shortcuts
+        eff_scaled = np.where(imp_vals >= 9.0, eff_with_thumb ** 2.0,
+                     np.where(imp_vals >= 7.0, eff_with_thumb ** 1.5, eff_with_thumb))
+        total = (eff_scaled * imp_vals * self.usage_boost[sids] * self.layer_imp_mult * mask).sum()
         fb = self._finger_balance(genome) * self.weights.get("finger_balance", 0.8)
         sfp = self._same_finger_penalty(genome) * self.weights.get("same_finger_penalty", 2.0)
         lc = self._learning_curve(genome) * self.weights.get("learning_curve", 0.5)
@@ -501,7 +1013,11 @@ class FitnessEvaluator:
                 if self.current_genome[i] >= 0 and genome[i] < 0:
                     imp = self.importance_arr[self.current_genome[i]]
                     unassign_eff += 2.0 + imp * imp * 1.0
-        return float(total * w + fb + sfp + lc + unassign_eff)
+        placement_reward = sum(
+            self.importance_arr[genome[i]] * 8.0
+            for i in range(len(genome)) if genome[i] >= 0
+        )
+        return float(total * w + fb + sfp + lc + unassign_eff - placement_reward)
 
     def _adjacency_score(self, genome):
         w = self.weights.get("adjacency", 1.5)
@@ -527,7 +1043,9 @@ class FitnessEvaluator:
         cl_bonus = self._cross_layer_consistency(genome) * self.weights.get("cross_layer_consistency", 2.0)
         tb_bonus = self._trackball_proximity(genome) * self.weights.get("trackball_proximity", 1.5)
         gp_bonus = self._group_placement_score(genome) * self.weights.get("group_placement", 2.0)
-        return total * w + thumb_bonus + cl_bonus + tb_bonus + gp_bonus
+        ac_bonus = self._app_coherence_score(genome) * self.weights.get("app_coherence", 3.0)
+        ma_bonus = self._mouse_accessibility_score(genome) * self.weights.get("mouse_accessibility", 5.0)
+        return total * w + thumb_bonus + cl_bonus + tb_bonus + gp_bonus + ac_bonus + ma_bonus
 
     def _violation_score(self, genome):
         w = self.weights.get("violations", 10.0)
@@ -538,19 +1056,48 @@ class FitnessEvaluator:
         total += self._zmk_compatibility(genome) * self.weights.get("zmk_compatibility", 20.0)
         total += self._unassignment_penalty(genome) * self.weights.get("unassignment", 15.0)
         total += self._missing_important_penalty(genome) * self.weights.get("missing_important", 15.0)
+        total += self._momentary_redundancy_penalty(genome) * self.weights.get("momentary_redundancy", 5.0)
+        total += self._cross_layer_duplicate_penalty(genome) * self.weights.get("cross_layer_duplicate", 8.0)
+        total += self._toggled_base_violation(genome) * self.weights.get("violations", 10.0)
+        total += self._l0_key_displacement_violation(genome) * self.weights.get("violations", 10.0)
         return total
+
+    def _toggled_base_violation(self, genome):
+        """Penalize toggled layers that lack a coach_base key in the thumb area."""
+        penalty = 0.0
+        for layer, thumb_indices in self.toggled_thumb_indices.items():
+            has_base = any(
+                genome[i] >= 0 and genome[i] in self.coach_base_sids
+                for i in thumb_indices
+            )
+            if not has_base:
+                penalty += 20.0  # heavy: user gets stuck on layer
+        return penalty
+
+    def _l0_key_displacement_violation(self, genome):
+        """Heavy penalty for L0-only base keys (letters, numbers) appearing on non-L0 layers."""
+        if not self.l0_only_sids:
+            return 0.0
+        penalty = 0.0
+        for i, sid in enumerate(genome):
+            if sid >= 0 and self.positions[i].layer != 0 and sid in self.l0_only_sids:
+                penalty += 50.0 + self.importance_arr[sid] * 2.0
+        return penalty
 
     def _missing_important_penalty(self, genome):
         """Penalize shortcuts from the pool that aren't placed anywhere.
-        Skip bare keys (no modifiers) - they belong on base layer (frozen)."""
+        All shortcuts in the pool are on mutable layers — bare keys like Vimium j/k
+        belong on non-frozen layers and must be penalized if missing."""
         assigned_sids = set(int(g) for g in genome if g >= 0)
         penalty = 0.0
         for s in self.pool:
             if s.sid in assigned_sids:
                 continue
-            if not s.modifiers:
-                continue
-            if s.importance >= 3.0:
+            if s.importance >= 9.0:
+                penalty += s.importance * s.importance * 2.0
+            elif s.importance >= 3.0:
+                penalty += s.importance * s.importance * 0.5
+            elif s.importance >= 1.0:
                 penalty += s.importance * 0.5
         return penalty
 
@@ -666,45 +1213,205 @@ class FitnessEvaluator:
         for i in range(len(genome)):
             if self.current_genome[i] >= 0 and genome[i] < 0:
                 imp = self.importance_arr[self.current_genome[i]]
-                # Quadratic scaling: removing high-importance keys is much worse
-                penalty += 1.0 + imp * imp * 0.3
+                penalty += 2.0 + imp * imp * 0.8
         return penalty
 
     def _learning_curve(self, genome, original=None):
         ref = original if original is not None else self.current_genome
         if ref is None:
             return 0.0
+
+        # Build position lookup for nearby displacement check
+        pos_of_sid = {}
+        for j in range(len(genome)):
+            if genome[j] >= 0:
+                pos_of_sid.setdefault(int(genome[j]), []).append(j)
+
         cost = 0.0
         for i in range(len(genome)):
             if genome[i] == ref[i]:
                 continue
-            # Moving a key costs less than removing or adding one
+            layer = self.positions[i].layer
             if ref[i] >= 0 and genome[i] >= 0:
-                cost += 0.3  # swap — user relearns position
+                imp = self.importance_arr[ref[i]]
+                swap_cost = 1.0 + imp * 0.5 + imp * imp * 0.01
+
+                # L2 mouse button / clipboard protection
+                if i in self.l2_protected_positions:
+                    swap_cost += imp * 100.0
+
+                # 3-tier shortcut value system (skip L2)
+                sid = ref[i]
+                if layer != 2:
+                    if sid in self.base_accessible_sids and self._shortcut_complexity(sid) <= 1.0:
+                        swap_cost *= 0.3
+                    elif sid not in self.base_accessible_sids:
+                        swap_cost *= 1.5
+
+                # Base keys on non-L0 layers get reduced learning curve
+                if layer != 0 and ref[i] >= 0:
+                    s = self.pool[ref[i]]
+                    if s.category == 'base_key':
+                        swap_cost *= 0.5
+
+                # Nearby displacement discount: if the displaced key moved to a
+                # nearby position on the same layer, the change is barely noticeable.
+                # Skip L0 (touch typing muscle memory) and L2 protected (mouse buttons).
+                if layer != 0 and i not in self.l2_protected_positions:
+                    old_sid = int(ref[i])
+                    new_positions = pos_of_sid.get(old_sid, [])
+                    nearby = False
+                    for j in new_positions:
+                        if j != i and self.positions[j].layer == layer:
+                            dist = abs(self.positions[j].x - self.positions[i].x) + abs(self.positions[j].y - self.positions[i].y)
+                            if dist <= 3:
+                                nearby = True
+                                break
+                    if nearby:
+                        swap_cost *= 0.2
+
+                cost += swap_cost
             elif ref[i] >= 0 and genome[i] < 0:
-                cost += 1.0  # removal — user loses a shortcut
+                imp = self.importance_arr[ref[i]]
+                remove_cost = 3.0 + imp * 1.0 + imp * imp * 0.02
+                if i in self.l2_protected_positions:
+                    remove_cost += imp * 150.0
+                cost += remove_cost
             else:
-                cost += 0.2  # addition — easy to learn
+                cost += 0.3
         return cost
 
     def _zmk_compatibility(self, genome):
         return float(sum(1 for i, sid in enumerate(genome) if sid >= 0 and sid in self.zmk_incompat))
 
+    def _compute_layer_app_dominance(self, genome):
+        """Kept for compatibility with evaluate_full breakdown."""
+        return {}
+
     def _layer_context_violations(self, genome):
-        violations = 0.0
+        """No hardcoded layer-app context. Returns 0 — layer themes emerge
+        from app-coherence reward and conjunction pairs."""
+        return 0.0
+
+    def _app_coherence_score(self, genome):
+        """Reward shortcuts sharing their primary app on the same layer.
+        Uses primary app only (matches GPU path)."""
+        layer_app_sids = {}
+        for i, sid in enumerate(genome):
+            if sid < 0 or sid not in self.shortcut_app_sets:
+                continue
+            layer = self.positions[i].layer
+            app = next(iter(self.shortcut_app_sets[sid]))
+            key = (layer, app)
+            if key not in layer_app_sids:
+                layer_app_sids[key] = []
+            layer_app_sids[key].append(sid)
+
+        bonus = 0.0
+        for (layer, app), sids in layer_app_sids.items():
+            if len(sids) < 2:
+                continue
+            avg_imp = sum(self.importance_arr[s] for s in sids) / len(sids)
+            bonus += len(sids) * avg_imp * 0.3
+        return bonus
+
+    def _mouse_accessibility_score(self, genome):
+        """Reward a functional one-handed mouse mode layer.
+
+        The user holds L2 with left thumb, right hand on trackball. A good
+        mouse layer needs: MB1/2/3 grouped on left hand at low effort,
+        clipboard shortcuts (Ctrl+C/V/Z/X) on left hand, and common
+        navigation (Escape, Enter, Tab, arrows) accessible one-handed.
+
+        The reward is large enough that starting from scratch, the optimizer
+        will actively BUILD this layer structure."""
+        bonus = 0.0
+
+        # --- Mouse button placement (per button, per instance) ---
+        mb_positions = {}
         for i, sid in enumerate(genome):
             if sid < 0:
                 continue
-            allowed = LAYER_APP_CONTEXT.get(self.positions[i].layer)
-            if allowed is None:
+            for mb_num, mb_sid in self.mouse_button_sids.items():
+                if sid == mb_sid:
+                    mb_positions.setdefault(mb_num, []).append((i, self.positions[i]))
+
+        critical_mbs = ['1', '2', '3']
+        mb_weights = {'1': 2.0, '2': 1.5, '3': 1.0, '4': 0.3, '5': 0.3}
+
+        for mb_num, mb_w in mb_weights.items():
+            placements = mb_positions.get(mb_num, [])
+            if not placements:
+                if mb_num in critical_mbs:
+                    bonus -= 40.0 * mb_w
                 continue
-            s = self.pool[sid]
-            shortcut_apps = set(s.apps) if s.apps else {s.app}
-            allowed_set = set(allowed)
-            if not shortcut_apps & allowed_set:
-                imp = self.importance_arr[sid]
-                violations += 1.0 + imp * 0.5
-        return violations
+            best_score = 0
+            has_l2_right = False
+            for i, pos in placements:
+                score = 0
+                if pos.layer == 2:
+                    if pos.hand == "left":
+                        score += 8.0 * mb_w
+                        score += 6.0 * mb_w
+                        if pos.effort <= 2:
+                            score += 4.0 * mb_w
+                        elif pos.effort <= 3:
+                            score += 2.0 * mb_w
+                    else:
+                        score += 1.0 * mb_w
+                        if mb_num in ('1', '2', '3'):
+                            has_l2_right = True
+                best_score = max(best_score, score)
+            bonus += best_score
+            if has_l2_right:
+                bonus -= 30.0 * mb_w
+
+        # --- MB grouping: reward MB1/2/3 clustered together on same layer ---
+        for layer in set(self.positions[i].layer for _, (i, _) in
+                         ((0, x) for placements in mb_positions.values() for x in placements)):
+            layer_mb_pos = []
+            for mb_num in critical_mbs:
+                for i, pos in mb_positions.get(mb_num, []):
+                    if pos.layer == layer:
+                        layer_mb_pos.append(pos)
+            n = len(layer_mb_pos)
+            if n >= 3:
+                bonus += 15.0
+            elif n >= 2:
+                bonus += 5.0
+            for a in range(len(layer_mb_pos)):
+                for b in range(a + 1, len(layer_mb_pos)):
+                    dist = abs(layer_mb_pos[a].x - layer_mb_pos[b].x) + \
+                           abs(layer_mb_pos[a].y - layer_mb_pos[b].y)
+                    if dist <= 2:
+                        bonus += 4.0
+                    elif dist <= 3:
+                        bonus += 2.0
+
+        # --- One-handed workflow completeness on L2 ---
+        l2_left_shortcuts = set()
+        l2_left_count = 0
+        for i in range(len(genome)):
+            if genome[i] < 0 or self.positions[i].layer != 2:
+                continue
+            if self.positions[i].hand == "left":
+                s = self.pool[genome[i]]
+                l2_left_shortcuts.add(s.keys)
+                l2_left_count += 1
+
+        clipboard_keys = {'Ctrl+C', 'Ctrl+V', 'Ctrl+Z', 'Ctrl+X'}
+        clipboard_on_l2 = len(clipboard_keys & l2_left_shortcuts)
+        bonus += clipboard_on_l2 * 6.0
+        if clipboard_on_l2 >= 3:
+            bonus += 8.0
+
+        nav_utility = {'Ctrl+A', 'Ctrl+W', 'Ctrl+Y', 'Escape', 'Enter', 'Tab', 'Delete'}
+        nav_on_l2 = len(nav_utility & l2_left_shortcuts)
+        bonus += nav_on_l2 * 4.0
+
+        bonus += min(l2_left_count, 15) * 1.5
+
+        return bonus
 
     def _group_split_violations(self, genome):
         violations = 0
@@ -808,20 +1515,73 @@ class FitnessEvaluator:
             bonus += effort_quality * group_imp * len(members)
         return bonus
 
-    def _duplicate_violations(self, genome):
-        """Penalize same-layer duplicates only. Cross-layer duplication is handled
-        by cross_layer_consistency (reward) and is intentional for universal shortcuts."""
-        layer_sids = {}
+    def _momentary_redundancy_penalty(self, genome):
+        """Penalize base-accessible shortcuts placed on momentary layers.
+        On momentary layers the user holds a thumb key — releasing is low-cost
+        (small cognitive context-switch, ~1.5 effort) so duplicating a shortcut
+        already reachable on L0 wastes a scarce position. Toggled layers get a
+        pass because round-tripping costs two toggle presses.
+
+        Complexity scaling: 3+ key combos (Ctrl+Shift+K) are much harder on L0
+        than on a layer, so the redundancy penalty is reduced proportionally.
+        A 3-key combo gets 55% discount, a 4-key combo gets 60% discount."""
+        COGNITIVE_SWITCH_COST = 1.5
+        penalty = 0.0
         for i, sid in enumerate(genome):
             if sid < 0:
                 continue
-            layer_sids.setdefault(self.positions[i].layer, []).append(int(sid))
+            layer = self.positions[i].layer
+            if layer not in self.momentary_layers:
+                continue
+            if sid not in self.base_accessible_sids:
+                continue
+            complexity = self._shortcut_complexity(sid)
+            if complexity >= 1.8:
+                continue  # 3+ key combos belong on layers, not redundancy
+            pos_effort = self.effort_arr[i]
+            # Higher complexity = lower penalty (layer placement is justified)
+            complexity_discount = 1.0 / complexity
+            if pos_effort >= COGNITIVE_SWITCH_COST:
+                raw = (pos_effort - COGNITIVE_SWITCH_COST) * 0.3 + 1.0
+            else:
+                raw = 0.5
+            penalty += raw * complexity_discount
+        return penalty
+
+    def _duplicate_violations(self, genome):
+        """Penalize same-layer duplicates, exempting intentional duplicates from the current layout."""
+        from collections import Counter
         penalty = 0.0
-        for sids in layer_sids.values():
-            seen = set()
-            for sid in sids:
-                if sid in seen:
+        for layer in set(p.layer for p in self.positions):
+            layer_sids = []
+            for i, sid in enumerate(genome):
+                if sid >= 0 and self.positions[i].layer == layer:
+                    layer_sids.append(int(sid))
+            counts = Counter(layer_sids)
+            for sid, cnt in counts.items():
+                if cnt <= 1:
+                    continue
+                exempt = self.original_layer_sid_counts.get((layer, sid), 1)
+                excess = cnt - exempt
+                if excess > 0:
                     imp = self.importance_arr[sid]
-                    penalty += 1.0 + imp * imp * 0.5
-                seen.add(sid)
+                    penalty += excess * (1.0 + imp * imp * 0.5)
+        return penalty
+
+    def _cross_layer_duplicate_penalty(self, genome):
+        """Penalize shortcuts that appear on more than 2 layers.
+        Having a shortcut on 2 layers is acceptable (e.g. Ctrl+S on L4 and L5).
+        3+ copies across layers wastes positions that could hold unique shortcuts."""
+        from collections import Counter
+        sid_layers = {}
+        for i, sid in enumerate(genome):
+            if sid < 0:
+                continue
+            sid_layers.setdefault(int(sid), set()).add(self.positions[i].layer)
+        penalty = 0.0
+        for sid, layers in sid_layers.items():
+            n = len(layers)
+            if n > 2:
+                imp = self.importance_arr[sid]
+                penalty += (n - 2) * (1.0 + imp * 0.3)
         return penalty

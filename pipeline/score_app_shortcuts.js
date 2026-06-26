@@ -7,7 +7,7 @@ const { normalizeParam, normalizeModifiers } = require("./lib/normalize");
 const FREQ_WEIGHTS = { constant: 10, high: 6, medium: 3, low: 1, rare: 0.2 };
 
 function loadAppKeybindings() {
-  const dir = path.join(__dirname, "app-keybindings");
+  const dir = path.join(__dirname, "..", "app-keybindings");
   const indexPath = path.join(dir, "index.json");
   if (!fs.existsSync(indexPath)) return { apps: [], weights: FREQ_WEIGHTS };
   const index = JSON.parse(fs.readFileSync(indexPath, "utf-8"));
@@ -136,8 +136,9 @@ function run(config) {
 
   if (apps.length === 0) {
     warnings.push("No app keybinding files found");
-    writeBuild("app_shortcut_scores.json", { timestamp: new Date().toISOString(), apps: [] });
-    return { success: true, output: {}, errors, warnings };
+    const emptyOutput = { timestamp: new Date().toISOString(), summary: { total_apps: 0, total_shortcuts: 0, total_mapped: 0, total_unmapped: 0, overall_coverage_pct: 0 }, apps: [] };
+    writeBuild("app_shortcut_scores.json", emptyOutput);
+    return { success: true, output: emptyOutput, errors, warnings };
   }
 
   const appResults = [];

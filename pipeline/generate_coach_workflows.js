@@ -60,11 +60,11 @@ function generate() {
     scores = readBuild("app_shortcut_scores.json");
   } catch {
     console.error("ERROR: build/app_shortcut_scores.json not found. Run the pipeline first:");
-    console.error("  node scripts/keymap-optimizer/run_pipeline.js");
+    console.error("  node pipeline/run_pipeline.js");
     process.exit(1);
   }
 
-  const corpusIndex = readJson("scripts/keymap-optimizer/app-keybindings/index.json");
+  const corpusIndex = readJson("app-keybindings/index.json");
   const scoreLookup = buildScoreLookup(scores);
 
   let existingIndex;
@@ -83,7 +83,7 @@ function generate() {
   let totalMapped = 0;
 
   for (const appEntry of corpusIndex.apps) {
-    const corpus = readJson(`scripts/keymap-optimizer/app-keybindings/${appEntry.file}`);
+    const corpus = readJson(`app-keybindings/${appEntry.file}`);
     const coachCategories = [];
 
     for (const cat of corpus.categories) {

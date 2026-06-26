@@ -121,7 +121,7 @@ function buildConjunctionPairs(appScores) {
 
   // Workflow-derived conjunctions: consecutive steps on the same layer
   try {
-    const workflowDir = path.join(__dirname, "workflows");
+    const workflowDir = path.join(__dirname, "..", "workflows");
     if (fs.existsSync(workflowDir)) {
       for (const file of fs.readdirSync(workflowDir).filter(f => f.endsWith(".json"))) {
         const wf = JSON.parse(fs.readFileSync(path.join(workflowDir, file), "utf-8"));
@@ -393,7 +393,7 @@ module.exports = { run };
 
 if (require.main === module) {
   const result = run({});
-  const p = JSON.parse(require("fs").readFileSync("scripts/keymap-optimizer/build/reorganize_proposals.json", "utf8"));
+  const p = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "..", "build", "reorganize_proposals.json"), "utf8"));
   console.log(`\nReorganize: ${p.total_proposals} proposals (${p.conjunction_pairs_count} conjunction pairs)\n`);
   for (const prop of p.proposals) {
     const conj = prop.conjunction_bonus > 0 ? ` [conj +${prop.conjunction_bonus.toFixed(1)}]` : "";

@@ -11,9 +11,43 @@ from representation import (
 )
 
 
+_FROZEN_L0_OPEN = None
+_FROZEN_L2_MOUSE = set()
+
+
+def set_frozen_l0(positions, open_gene_indices):
+    """Set which L0 positions are open for mutation. All other L0 positions are frozen."""
+    global _FROZEN_L0_OPEN
+    open_set = set(open_gene_indices)
+    _FROZEN_L0_OPEN = set()
+    for i, p in enumerate(positions):
+        if p.layer == 0 and i not in open_set:
+            _FROZEN_L0_OPEN.add(i)
+    print(f"  L0 frozen: {len(_FROZEN_L0_OPEN)} positions, {len(open_set)} open")
+
+
+def set_frozen_l2_mouse(positions, pool, genome):
+    """Freeze all currently-assigned L2 positions in operators.
+    L2 is one-handed mouse mode — every assigned key is contextually critical
+    (mouse buttons, clipboard, window management, navigation). Displacing any
+    of them breaks the one-handed workflow."""
+    global _FROZEN_L2_MOUSE
+    _FROZEN_L2_MOUSE = set()
+    for i, p in enumerate(positions):
+        if p.layer != 2:
+            continue
+        sid = genome[i] if i < len(genome) else -1
+        if sid >= 0:
+            _FROZEN_L2_MOUSE.add(i)
+    print(f"  L2 frozen in operators: {len(_FROZEN_L2_MOUSE)} positions (all assigned)")
+
+
 def _protected_gene_indices(genome, positions, pool, dynamic_groups=None):
-    """Return set of gene indices that belong to protected groups."""
+    """Return set of gene indices that belong to protected groups or frozen L0."""
     protected = set()
+    if _FROZEN_L0_OPEN is not None:
+        protected.update(_FROZEN_L0_OPEN)
+    # L2 mouse positions no longer frozen — protected by accessibility reward instead
     for group in KEY_GROUPS:
         if not group.get("protected"):
             continue
@@ -303,24 +337,142 @@ def move_group(genome, positions, shortcut_pool, layer_positions=None, dynamic_g
     return genome
 
 
-def custom_mutate(genome, positions, shortcut_pool, layer_positions=None, dynamic_groups=None):
+def swap_layer_content(genome, positions, shortcut_pool, layer_positions=None, dynamic_groups=None):
+    """Swap all shortcuts between two layers. Explores whether a different
+    layer arrangement is better (e.g. Nav on L1 vs L3 changes thumb access cost)."""
+    genome = copy.copy(genome)
+    if layer_positions is None:
+        layer_positions = build_layer_to_positions(positions)
+    layers = list(layer_positions.keys())
+    if len(layers) < 2:
+        return genome
+    la, lb = random.sample(layers, 2)
+    pos_a = layer_positions[la]
+    pos_b = layer_positions[lb]
+    sids_a = [(p.gene_idx, genome[p.gene_idx]) for p in pos_a if genome[p.gene_idx] >= 0]
+    sids_b = [(p.gene_idx, genome[p.gene_idx]) for p in pos_b if genome[p.gene_idx] >= 0]
+    for idx, _ in sids_a:
+        genome[idx] = -1
+    for idx, _ in sids_b:
+        genome[idx] = -1
+    empty_a = [p for p in pos_a if genome[p.gene_idx] < 0]
+    empty_b = [p for p in pos_b if genome[p.gene_idx] < 0]
+    empty_a.sort(key=lambda p: p.effort)
+    empty_b.sort(key=lambda p: p.effort)
+    for i, (_, sid) in enumerate(sids_b):
+        if i < len(empty_a):
+            genome[empty_a[i].gene_idx] = sid
+    for i, (_, sid) in enumerate(sids_a):
+        if i < len(empty_b):
+            genome[empty_b[i].gene_idx] = sid
+    _repair_layer_dupes(genome, positions, pos_a)
+    _repair_layer_dupes(genome, positions, pos_b)
+    return genome
+
+
+def _repair_layer_dupes(genome, positions, layer_pos_list):
+    """Remove same-layer duplicates created by layer swaps."""
+    seen = set()
+    for p in layer_pos_list:
+        sid = genome[p.gene_idx]
+        if sid < 0:
+            continue
+        if sid in seen:
+            genome[p.gene_idx] = -1
+        else:
+            seen.add(sid)
+
+
+def redistribute_shortcuts(genome, positions, shortcut_pool, layer_positions=None, dynamic_groups=None):
+    """Move a random subset of shortcuts from one layer to another with empty slots."""
+    genome = copy.copy(genome)
+    if layer_positions is None:
+        layer_positions = build_layer_to_positions(positions)
+    protected = _protected_gene_indices(genome, positions, shortcut_pool, dynamic_groups) if shortcut_pool else set()
+    layers = list(layer_positions.keys())
+    if len(layers) < 2:
+        return genome
+    src_layer = random.choice(layers)
+    dst_layer = random.choice([l for l in layers if l != src_layer])
+    src_pos = layer_positions[src_layer]
+    dst_pos = layer_positions[dst_layer]
+    movable = [p for p in src_pos if genome[p.gene_idx] >= 0 and p.gene_idx not in protected]
+    empty_dst = [p for p in dst_pos if genome[p.gene_idx] < 0]
+    if not movable or not empty_dst:
+        return genome
+    n_move = random.randint(1, min(5, len(movable), len(empty_dst)))
+    to_move = random.sample(movable, n_move)
+    empty_dst.sort(key=lambda p: p.effort)
+    for i, src_p in enumerate(to_move):
+        if i < len(empty_dst):
+            genome[empty_dst[i].gene_idx] = genome[src_p.gene_idx]
+            genome[src_p.gene_idx] = -1
+    return genome
+
+
+def cross_layer_deduplicate(genome, positions, shortcut_pool, layer_positions=None, dynamic_groups=None):
+    """Remove a cross-layer duplicate (shortcut on 3+ layers) and replace with unassigned."""
+    genome = copy.copy(genome)
+    if layer_positions is None:
+        layer_positions = build_layer_to_positions(positions)
+    sid_positions = {}
+    for i, sid in enumerate(genome):
+        if sid >= 0:
+            sid_positions.setdefault(int(sid), []).append(i)
+    cross_dupes = {sid: idxs for sid, idxs in sid_positions.items()
+                   if len(set(positions[i].layer for i in idxs)) > 2}
+    if not cross_dupes:
+        return genome
+    sid = random.choice(list(cross_dupes.keys()))
+    idxs = cross_dupes[sid]
+    remove_idx = random.choice(idxs)
+    genome[remove_idx] = -1
+    if random.random() < 0.6:
+        assigned_sids = set(s for s in genome if s >= 0)
+        candidates = [s for s in shortcut_pool if s.sid not in assigned_sids and s.importance >= 3.0]
+        if candidates:
+            best = max(candidates, key=lambda s: s.importance)
+            genome[remove_idx] = best.sid
+    return genome
+
+
+def custom_mutate(genome, positions, shortcut_pool, layer_positions=None, dynamic_groups=None, scratch_mode=False):
     if layer_positions is None:
         layer_positions = build_layer_to_positions(positions)
     r = random.random()
-    if r < 0.20:
+    if scratch_mode:
+        if r < 0.40:
+            return (migrate_shortcut(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
+        elif r < 0.55:
+            return (fix_context_violation(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
+        elif r < 0.70:
+            return (swap_within_layer(genome, positions, layer_positions, shortcut_pool, dynamic_groups),)
+        elif r < 0.80:
+            return (thumb_fill(genome, positions, shortcut_pool, layer_positions),)
+        elif r < 0.90:
+            return (deduplicate(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
+        else:
+            return (move_group(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
+    if r < 0.10:
         return (swap_within_layer(genome, positions, layer_positions, shortcut_pool, dynamic_groups),)
-    elif r < 0.30:
+    elif r < 0.17:
         return (swap_to_empty(genome, positions, layer_positions, shortcut_pool, dynamic_groups),)
-    elif r < 0.55:
+    elif r < 0.35:
         return (migrate_shortcut(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
-    elif r < 0.65:
+    elif r < 0.42:
         return (move_group(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
-    elif r < 0.75:
+    elif r < 0.48:
         return (thumb_fill(genome, positions, shortcut_pool, layer_positions),)
-    elif r < 0.85:
+    elif r < 0.66:
         return (deduplicate(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
-    else:
+    elif r < 0.76:
         return (fix_context_violation(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
+    elif r < 0.80:
+        return (swap_layer_content(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
+    elif r < 0.86:
+        return (redistribute_shortcuts(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
+    else:
+        return (cross_layer_deduplicate(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
 
 
 def pmx_crossover(parent1, parent2, positions, layer_positions=None, pool=None, dynamic_groups=None):

@@ -10,9 +10,9 @@ with open('../build/canonical.json', encoding='utf-8') as f:
 with open('../build/app_shortcut_scores.json', encoding='utf-8') as f:
     scores = json.load(f)
 config = json.load(open('config.json'))
-frozen = {0,6,7,8}
+frozen = {7}
 positions = build_position_index(canonical, frozen)
-pool = build_shortcut_pool(scores)
+pool = build_shortcut_pool(scores, canonical)
 
 pairs = {}
 for app in scores['apps']:
@@ -37,7 +37,7 @@ print(f'GPU: {torch.cuda.get_device_name(0)}')
 eval_gpu = FitnessEvaluator(positions, pool, config, conjunction_pairs=pairs, device=device)
 eval_cpu = FitnessEvaluator(positions, pool, config, conjunction_pairs=pairs, device='cpu')
 
-genome = encode_current_layout(canonical, positions, pool, frozen)
+genome = encode_current_layout(canonical, positions, pool)
 layer_positions = build_layer_to_positions(positions)
 from operators import swap_within_layer
 

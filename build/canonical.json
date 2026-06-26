@@ -1,20 +1,20 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-24T20:00:56.154Z",
+  "timestamp": "2026-06-25T09:02:40.052Z",
   "sources": {
     "csv": {
       "path": "layout/keybindings_explained.csv",
       "rowCount": 616,
-      "hash": "266eeb5f78f1d324"
+      "hash": "a7ae4edad0594c38"
     },
     "apply": {
       "path": "scripts/zmk-studio/apply_every_key.js",
       "keyCount": 616,
       "version": "v2.5",
-      "hash": "3a867c6dc4710496"
+      "hash": "e07dbf364ceaea23"
     },
     "workflows": {
-      "path": "apps/charybdis-coach/workflows/index.json",
+      "path": "C:\\Users\\nos\\charybdis-coach\\workflows\\index.json",
       "fileCount": 13,
       "shortcutCount": 532
     }
@@ -1496,12 +1496,13 @@
           "y": 3,
           "label": "CmdPal",
           "behavior": "Key Press",
-          "parameter": "Space",
+          "parameter": "Spacebar",
           "modifiers": [
-            "L Alt"
+            "L Alt",
+            "L GUI"
           ],
-          "purpose": "v1.9: Left-hand Alt+Space PowerToys Command Palette: hold Nav thumb + tap S position.",
-          "usage_notes": "Sends L Alt+Space."
+          "purpose": "v2.6: Win+Alt+Space PowerToys Command Palette default — works across machines.",
+          "usage_notes": "Sends L Alt+L GUI+Spacebar."
         },
         "9:3": {
           "x": 9,
@@ -2812,12 +2813,13 @@
           "y": 3,
           "label": "CmdPal",
           "behavior": "Key Press",
-          "parameter": "Space",
+          "parameter": "Spacebar",
           "modifiers": [
-            "L Alt"
+            "L Alt",
+            "L GUI"
           ],
-          "purpose": "v1.9: Right-hand Alt+Space PowerToys: hold Window thumb + tap pinky position.",
-          "usage_notes": "Sends L Alt+Space."
+          "purpose": "v2.6: Win+Alt+Space PowerToys Command Palette default — works across machines.",
+          "usage_notes": "Sends L Alt+L GUI+Spacebar."
         },
         "12:3": {
           "x": 12,
@@ -8296,11 +8298,12 @@
       "y": 3,
       "behavior": "Key Press",
       "label": "CmdPal",
-      "parameter": "Space",
+      "parameter": "Keyboard Spacebar",
       "modifiers": [
-        "L Alt"
+        "L Alt",
+        "L GUI"
       ],
-      "rationale": "v2.5-reorg: swapped for ergonomics (effort 7→5)",
+      "rationale": "v2.6: Win+Alt+Space PowerToys default — works across machines.",
       "studioSkip": false
     },
     {
@@ -8441,7 +8444,7 @@
       "y": 0,
       "behavior": "Key Press",
       "label": "Snip",
-      "parameter": "Keyboard PrintScreen and SysReq",
+      "parameter": "Keyboard PrintScreen",
       "modifiers": [
         "L GUI",
         "L Shift"
@@ -9715,11 +9718,12 @@
       "y": 3,
       "behavior": "Key Press",
       "label": "CmdPal",
-      "parameter": "Space",
+      "parameter": "Keyboard Spacebar",
       "modifiers": [
-        "L Alt"
+        "L Alt",
+        "L GUI"
       ],
-      "rationale": "v1.9: Right-hand Alt+Space PowerToys: hold Window thumb + tap pinky position.",
+      "rationale": "v2.6: Win+Alt+Space PowerToys default — works across machines.",
       "studioSkip": false
     },
     {
@@ -14445,7 +14449,7 @@
   "workflow_apps": {
     "teams": {
       "id": "teams",
-      "name": "Microsoft Teams",
+      "name": "💬 Microsoft Teams",
       "file": "teams.json",
       "refs": [
         {
@@ -14668,7 +14672,7 @@
     },
     "browser": {
       "id": "browser",
-      "name": "Browser (Chrome/Edge)",
+      "name": "🌐 Browser (Chrome/Edge)",
       "file": "browser.json",
       "refs": [
         {
@@ -15089,7 +15093,7 @@
     },
     "vscode": {
       "id": "vscode",
-      "name": "Visual Studio Code",
+      "name": "💻 Visual Studio Code",
       "file": "vscode.json",
       "refs": [
         {
@@ -15492,7 +15496,7 @@
     },
     "mfiles": {
       "id": "mfiles",
-      "name": "M-Files Desktop Client",
+      "name": "📁 M-Files Desktop Client",
       "file": "mfiles.json",
       "refs": [
         {
@@ -15709,7 +15713,7 @@
     },
     "windows": {
       "id": "windows",
-      "name": "Windows 11",
+      "name": "🪟 Windows 11",
       "file": "windows.json",
       "refs": [
         {
@@ -15992,7 +15996,7 @@
     },
     "outlook": {
       "id": "outlook",
-      "name": "Microsoft Outlook",
+      "name": "📧 Microsoft Outlook",
       "file": "outlook.json",
       "refs": [
         {
@@ -16173,7 +16177,7 @@
     },
     "excel": {
       "id": "excel",
-      "name": "Microsoft Excel",
+      "name": "📊 Microsoft Excel",
       "file": "excel.json",
       "refs": [
         {
@@ -16492,7 +16496,7 @@
     },
     "explorer": {
       "id": "explorer",
-      "name": "File Explorer",
+      "name": "📂 File Explorer",
       "file": "explorer.json",
       "refs": [
         {
@@ -16637,7 +16641,7 @@
     },
     "terminal": {
       "id": "terminal",
-      "name": "Windows Terminal / PowerShell",
+      "name": "🖥️ Windows Terminal / PowerShell",
       "file": "terminal.json",
       "refs": [
         {
@@ -16776,7 +16780,7 @@
     },
     "word": {
       "id": "word",
-      "name": "Microsoft Word",
+      "name": "📝 Microsoft Word",
       "file": "word.json",
       "refs": [
         {
@@ -16939,7 +16943,7 @@
     },
     "powerpoint": {
       "id": "powerpoint",
-      "name": "Microsoft PowerPoint",
+      "name": "📊 Microsoft PowerPoint",
       "file": "powerpoint.json",
       "refs": [
         {
@@ -17108,7 +17112,7 @@
     },
     "discord": {
       "id": "discord",
-      "name": "Discord",
+      "name": "🎮 Discord",
       "file": "discord.json",
       "refs": [
         {
@@ -17205,7 +17209,7 @@
     },
     "mfiles_admin": {
       "id": "mfiles_admin",
-      "name": "M-Files Admin",
+      "name": "🔧 M-Files Admin",
       "file": "mfiles_admin.json",
       "refs": [
         {

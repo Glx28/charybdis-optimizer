@@ -160,7 +160,8 @@ function run(config) {
 
   const report = lines.join("\n");
   ensureBuildDir();
-  fs.writeFileSync(path.join(__dirname, "build", "baseline_report.md"), report, "utf-8");
+  const { BUILD } = require("./lib/io");
+  fs.writeFileSync(path.join(BUILD, "baseline_report.md"), report, "utf-8");
   writeBuild("baseline_report_meta.json", { timestamp: new Date().toISOString(), lines: lines.length });
 
   return { success: true, output: { lines: lines.length }, errors: [], warnings: [] };

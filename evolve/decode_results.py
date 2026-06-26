@@ -24,10 +24,10 @@ def main():
     scores = load(build_dir, "app_shortcut_scores.json")
     results = load(build_dir, results_file)
 
-    frozen = {0, 6, 7, 8}
+    frozen = {7}
     positions = build_position_index(canonical, frozen)
-    pool = build_shortcut_pool(scores)
-    current = encode_current_layout(canonical, positions, pool, frozen)
+    pool = build_shortcut_pool(scores, canonical)
+    current = encode_current_layout(canonical, positions, pool)
 
     print(f"Generation: {results.get('generation', '?')}")
     print(f"Pareto front size: {len(results.get('pareto_front', []))}")

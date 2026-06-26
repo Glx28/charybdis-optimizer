@@ -37,11 +37,11 @@ def main():
 
     canonical, scores, usage_stats, _ = load_build_data(build_dir)
     conjunction_pairs = build_conjunction_pairs_from_scores(scores)
-    frozen = set(config.get("frozen_layers", [0, 6, 7, 8]))
+    frozen = set(config.get("frozen_layers", [7]))
     positions = build_position_index(canonical, frozen)
-    pool = build_shortcut_pool(scores)
+    pool = build_shortcut_pool(scores, canonical)
     layer_positions = build_layer_to_positions(positions)
-    current = encode_current_layout(canonical, positions, pool, frozen)
+    current = encode_current_layout(canonical, positions, pool)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Device: {device}")

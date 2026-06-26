@@ -5,6 +5,7 @@ const ROOT = path.resolve(__dirname, "..", "..");
 const BUILD = path.join(ROOT, "build");
 const SIBLING_ZMK = process.env.ZMK_CONFIG_PATH || path.resolve(ROOT, "..", "charybdis-zmk-config");
 const SIBLING_TOOLS = process.env.TOOLS_PATH || path.resolve(ROOT, "..", "charybdis-tools");
+const SIBLING_COACH = process.env.COACH_PATH || path.resolve(ROOT, "..", "charybdis-coach");
 
 function ensureBuildDir() {
   if (!fs.existsSync(BUILD)) fs.mkdirSync(BUILD, { recursive: true });
@@ -37,4 +38,4 @@ function sourceExists(relPath) {
   return fs.existsSync(resolveSource(relPath));
 }
 
-module.exports = { ROOT, BUILD, SIBLING_ZMK, SIBLING_TOOLS, readSource, readJson, readBuild, writeBuild, ensureBuildDir, sourceExists };
+module.exports = { ROOT, BUILD, SIBLING_ZMK, SIBLING_TOOLS, SIBLING_COACH, readSource, readJson, readBuild, writeBuild, ensureBuildDir, sourceExists };

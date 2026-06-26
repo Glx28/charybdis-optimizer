@@ -4,15 +4,15 @@ const path = require("path");
 
 function run(config) {
   const errors = [], warnings = [];
-  const evolveDir = path.join(__dirname, "evolve");
+  const evolveDir = path.join(__dirname, "..", "evolve");
 
   let pythonCmd = "python";
   try {
-    execSync(`${pythonCmd} --version`, { stdio: "pipe" });
+    execSync(`${pythonCmd} --version`, { stdio: "pipe", shell: true });
   } catch {
     try {
       pythonCmd = "python3";
-      execSync(`${pythonCmd} --version`, { stdio: "pipe" });
+      execSync(`${pythonCmd} --version`, { stdio: "pipe", shell: true });
     } catch {
       warnings.push("Python not available, skipping evolution. Install Python 3.12+.");
       return { success: true, output: { summary: "Skipped (no Python)", skipped: true }, errors, warnings };
@@ -20,18 +20,19 @@ function run(config) {
   }
 
   try {
-    execSync(`${pythonCmd} -c "import deap; import numpy"`, { stdio: "pipe" });
+    execSync(`${pythonCmd} -c "import deap; import numpy"`, { stdio: "pipe", shell: true });
   } catch {
-    warnings.push("DEAP/numpy not installed. Run: pip install -r scripts/keymap-optimizer/evolve/requirements.txt");
+    warnings.push("DEAP/numpy not installed. Run: pip install -r evolve/requirements.txt");
     return { success: true, output: { summary: "Skipped (missing deps)", skipped: true }, errors, warnings };
   }
 
   try {
     const script = path.join(evolveDir, "run_evolution.py");
     const stdout = execSync(`${pythonCmd} "${script}" "${BUILD}"`, {
-      timeout: 300000,
+      timeout: 1800000,
       stdio: ["pipe", "pipe", "pipe"],
       cwd: evolveDir,
+      shell: true,
     });
 
     console.log(stdout.toString().split("\n").map(l => `    ${l}`).join("\n"));

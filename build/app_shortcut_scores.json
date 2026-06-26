@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-24T20:00:56.624Z",
+  "timestamp": "2026-06-25T09:02:40.546Z",
   "summary": {
     "total_apps": 13,
     "total_shortcuts": 532,
@@ -7686,7 +7686,7 @@
           "freq_weight": 1,
           "importance": 0.45,
           "mapped": true,
-          "match_count": 6,
+          "match_count": 3,
           "best_match": {
             "context": "code_ide",
             "coord": "1:1",

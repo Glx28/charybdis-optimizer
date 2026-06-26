@@ -1,0 +1,71 @@
+{
+  "_generated": "2026-06-26 via zmk_studio_enumerate_behaviors.js",
+  "_notes": "No 'Output Selection' behavior exists in this ZMK Studio build. USB/BLE output keys are firmware-only.",
+  "Bluetooth": {
+    "value": "13",
+    "parameterSelect": {
+      "options": [
+        {"value": "1", "text": "Next Profile"},
+        {"value": "2", "text": "Previous Profile"},
+        {"value": "4", "text": "Clear All Profiles"},
+        {"value": "0", "text": "Clear Selected Profile"},
+        {"value": "3", "text": "Select Profile"},
+        {"value": "5", "text": "Disconnect Profile"}
+      ]
+    },
+    "subControls": {
+      "Select Profile": {"type": "number", "label": "Profile:", "min": 0, "max": 5},
+      "Disconnect Profile": {"type": "number", "label": "Profile:", "min": 0, "max": 5}
+    }
+  },
+  "Mouse Key Press": {
+    "value": "1",
+    "parameterSelect": {
+      "options": [
+        {"value": "1", "text": "MB1"},
+        {"value": "2", "text": "MB2"},
+        {"value": "4", "text": "MB3"},
+        {"value": "8", "text": "MB4"},
+        {"value": "16", "text": "MB5"}
+      ]
+    }
+  },
+  "Key Press": {
+    "value": "11",
+    "combobox": true,
+    "modifierCheckboxes": ["L Ctrl", "L Shift", "L Alt", "L GUI", "R Ctrl", "R Shift", "R Alt", "R GUI"]
+  },
+  "Momentary Layer": {
+    "value": "23",
+    "parameterSelect": {"label": "Layer:", "options": ["0","1","2","3","4","5","6","7","8","9","10"]}
+  },
+  "To Layer": {
+    "value": "12",
+    "parameterSelect": {"label": "Layer:", "options": ["0","1","2","3","4","5","6","7","8","9","10"]}
+  },
+  "Toggle Layer": {
+    "value": "31",
+    "parameterSelect": {"label": "Layer:", "options": ["0","1","2","3","4","5","6","7","8","9","10"]}
+  },
+  "Underglow": {
+    "value": "14",
+    "parameterSelect": {
+      "options": [
+        {"value": "0", "text": "Toggle On/Off"},
+        {"value": "1", "text": "Turn On"},
+        {"value": "2", "text": "Turn OFF"},
+        {"value": "3", "text": "Hue Up"},
+        {"value": "4", "text": "Hue Down"},
+        {"value": "5", "text": "Saturation Up"},
+        {"value": "6", "text": "Saturation Down"},
+        {"value": "7", "text": "Brightness Up"},
+        {"value": "8", "text": "Brightness Down"},
+        {"value": "9", "text": "Speed Up"},
+        {"value": "10", "text": "Speed Down"},
+        {"value": "11", "text": "Next Effect"},
+        {"value": "12", "text": "Previous Effect"}
+      ]
+    }
+  },
+  "noParameters": ["Bootloader", "coach_base", "coach_game_lock", "coach_l1_hold", "coach_l2_hold", "coach_l3_hold", "coach_l4_hold", "coach_mouse_lock", "coach_recover_base", "coach_travel_off", "coach_travel_toggle", "External Power", "launcher_powertoys", "launcher_win_search", "mouse_move", "mouse_scroll", "None", "Reset", "scroll_horizontal_encoder", "scroll_vertical_encoder", "Studio Unlock", "To0_macro", "To1_macro", "To1_macro_A", "To2_macro", "To2_macro_A", "Transparent"]
+}

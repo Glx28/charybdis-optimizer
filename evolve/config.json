@@ -1,17 +1,22 @@
 {
-  "pop_size": 3000,
-  "generations": 500,
-  "checkpoint_interval": 25,
-  "mutation_rate": 0.30,
-  "crossover_rate": 0.7,
+  "pop_size": 5000,
+  "generations": 5000,
+  "checkpoint_interval": 50,
+  "mutation_rate": 0.35,
+  "crossover_rate": 0.65,
   "tournament_size": 3,
   "frozen_layers": [
-    0,
-    6,
-    7,
-    8
+    7
   ],
-  "pareto_front_size": 20,
+  "open_l0_keys": [
+    "_base_select:mb1",
+    "_base_leftalt",
+    "_base_coach_l1_hold",
+    "_base_coach_l2_hold",
+    "_base_coach_l3_hold",
+    "_base_coach_l4_hold"
+  ],
+  "pareto_front_size": 30,
   "seed": null,
   "use_gpu": true,
   "qd_grid_dims": [
@@ -25,19 +30,24 @@
   "weights": {
     "effort": 1.0,
     "adjacency": 1.5,
-    "violations": 10.0,
+    "violations": 50.0,
     "finger_balance": 0.8,
     "same_finger_penalty": 2.0,
     "thumb_utilization": 3.0,
-    "cross_layer_consistency": 2.0,
-    "trackball_proximity": 1.5,
+    "cross_layer_consistency": 0.5,
+    "trackball_proximity": 3.0,
     "app_transition": 1.0,
-    "learning_curve": 0.5,
+    "learning_curve": 1.0,
     "zmk_compatibility": 20.0,
     "unassignment": 30.0,
     "group_placement": 2.0,
-    "missing_important": 25.0,
-    "duplicate": 3.0,
-    "group_split": 20.0
+    "missing_important": 50.0,
+    "duplicate": 40.0,
+    "cross_layer_duplicate": 8.0,
+    "group_split": 20.0,
+    "momentary_redundancy": 5.0,
+    "mouse_layer_bonus": 5.0,
+    "app_coherence": 3.0,
+    "mouse_accessibility": 5.0
   }
 }

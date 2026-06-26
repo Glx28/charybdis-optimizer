@@ -58,6 +58,6 @@ try {
 
   w("\n" + "═".repeat(60) + "\n");
 } catch (e) {
-  console.error("Dashboard error — run the pipeline first: node scripts/keymap-optimizer/run_pipeline.js");
+  console.error("Dashboard error — run the pipeline first: node pipeline/run_pipeline.js");
   console.error(e.message);
 }

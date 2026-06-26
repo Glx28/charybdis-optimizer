@@ -55,6 +55,12 @@ function run(config) {
   const sequences = {};
   const byApp = {};
   const byLayer = {};
+  const mouseClicks = {};
+  const scrollEvents = {};
+  const layerSessions = {};
+  const holdHeavy = {};
+  const modifierTaps = {};
+  const appFocusTime = {};
   let earliest = null, latest = null;
 
   for (const line of lines) {
@@ -62,31 +68,103 @@ function run(config) {
     try { entry = JSON.parse(line); } catch { continue; }
 
     const ts = entry.ts;
-    const rawKeys = entry.keys;
+    const eventType = entry.type || "shortcut";
     const app = entry.app || "unknown";
     const layer = String(entry.layer || "0");
-
-    if (!rawKeys) continue;
-    const keys = normalizeKeys(rawKeys);
 
     if (!earliest || ts < earliest) earliest = ts;
     if (!latest || ts > latest) latest = ts;
 
+    if (eventType === "mouse") {
+      const btn = entry.button || "MB1";
+      if (!mouseClicks[btn]) mouseClicks[btn] = { count: 0, apps: {}, with_modifier: {} };
+      mouseClicks[btn].count += entry.count || 1;
+      mouseClicks[btn].apps[app] = (mouseClicks[btn].apps[app] || 0) + (entry.count || 1);
+      if (entry.modifier) {
+        mouseClicks[btn].with_modifier[entry.modifier] = (mouseClicks[btn].with_modifier[entry.modifier] || 0) + (entry.count || 1);
+      }
+      if (!byApp[app]) byApp[app] = { total: 0, shortcuts: {}, mouse_clicks: 0, scroll_total: 0 };
+      byApp[app].mouse_clicks = (byApp[app].mouse_clicks || 0) + (entry.count || 1);
+      continue;
+    }
+
+    if (eventType === "scroll") {
+      const dir = entry.direction || "down";
+      const exe = app.toLowerCase();
+      if (!scrollEvents[exe]) scrollEvents[exe] = { up: 0, down: 0, left: 0, right: 0 };
+      scrollEvents[exe][dir] = (scrollEvents[exe][dir] || 0) + (entry.ticks || 1);
+      if (!byApp[app]) byApp[app] = { total: 0, shortcuts: {}, mouse_clicks: 0, scroll_total: 0 };
+      byApp[app].scroll_total = (byApp[app].scroll_total || 0) + (entry.ticks || 1);
+      continue;
+    }
+
+    if (eventType === "layer_session") {
+      const sl = String(entry.layer || "0");
+      if (!layerSessions[sl]) layerSessions[sl] = { count: 0, total_duration_ms: 0, total_keys: 0, key_freq: {} };
+      layerSessions[sl].count++;
+      layerSessions[sl].total_duration_ms += entry.duration_ms || 0;
+      const kp = entry.keys_pressed || [];
+      layerSessions[sl].total_keys += kp.length;
+      for (const k of kp) {
+        layerSessions[sl].key_freq[k] = (layerSessions[sl].key_freq[k] || 0) + 1;
+      }
+      continue;
+    }
+
+    if (eventType === "app_focus") {
+      const prevApp = entry.prev_app || "";
+      const dur = entry.prev_duration_ms || 0;
+      if (prevApp) {
+        appFocusTime[prevApp] = (appFocusTime[prevApp] || 0) + dur;
+      }
+      continue;
+    }
+
+    if (eventType === "modifier_tap") {
+      const key = entry.key || "unknown";
+      modifierTaps[key] = (modifierTaps[key] || 0) + 1;
+      continue;
+    }
+
+    if (eventType === "typing_counter") {
+      const tkeys = entry.keys || "unknown";
+      const tcount = entry.count || 1;
+      if (!shortcuts[tkeys]) shortcuts[tkeys] = { count: 0, apps: {} };
+      shortcuts[tkeys].count += tcount;
+      shortcuts[tkeys].apps[app] = (shortcuts[tkeys].apps[app] || 0) + tcount;
+      if (!byApp[app]) byApp[app] = { total: 0, shortcuts: {}, mouse_clicks: 0, scroll_total: 0 };
+      byApp[app].total += tcount;
+      byApp[app].shortcuts[tkeys] = (byApp[app].shortcuts[tkeys] || 0) + tcount;
+      continue;
+    }
+
+    // shortcut, functional, layer_key — all handled as key events
+    const rawKeys = entry.keys;
+    if (!rawKeys) continue;
+    const keys = normalizeKeys(rawKeys);
+    const repeatCount = entry.repeat_count || 1;
+
     if (!shortcuts[keys]) shortcuts[keys] = { count: 0, apps: {} };
-    shortcuts[keys].count++;
-    shortcuts[keys].apps[app] = (shortcuts[keys].apps[app] || 0) + 1;
+    shortcuts[keys].count += repeatCount;
+    shortcuts[keys].apps[app] = (shortcuts[keys].apps[app] || 0) + repeatCount;
 
-    if (!byApp[app]) byApp[app] = { total: 0, shortcuts: {} };
-    byApp[app].total++;
-    byApp[app].shortcuts[keys] = (byApp[app].shortcuts[keys] || 0) + 1;
+    if (!byApp[app]) byApp[app] = { total: 0, shortcuts: {}, mouse_clicks: 0, scroll_total: 0 };
+    byApp[app].total += repeatCount;
+    byApp[app].shortcuts[keys] = (byApp[app].shortcuts[keys] || 0) + repeatCount;
 
-    byLayer[layer] = (byLayer[layer] || 0) + 1;
+    byLayer[layer] = (byLayer[layer] || 0) + repeatCount;
 
     if (entry.prev && entry.gap_ms) {
       const seqKey = `${normalizeKeys(entry.prev)} -> ${keys}`;
       if (!sequences[seqKey]) sequences[seqKey] = { count: 0, total_gap_ms: 0 };
       sequences[seqKey].count++;
       sequences[seqKey].total_gap_ms += entry.gap_ms;
+    }
+
+    if (entry.held_ms && entry.held_ms >= 500) {
+      if (!holdHeavy[keys]) holdHeavy[keys] = { count: 0, total_hold_ms: 0 };
+      holdHeavy[keys].count++;
+      holdHeavy[keys].total_hold_ms += entry.held_ms;
     }
   }
 
@@ -109,6 +187,20 @@ function run(config) {
     delete a.shortcuts;
   }
 
+  // Finalize layer sessions
+  for (const [, ls] of Object.entries(layerSessions)) {
+    ls.avg_duration_ms = Math.round(ls.total_duration_ms / Math.max(ls.count, 1));
+    delete ls.total_duration_ms;
+    ls.common_keys = Object.entries(ls.key_freq).sort((a, b) => b[1] - a[1]).slice(0, 10).map(e => e[0]);
+    delete ls.key_freq;
+  }
+
+  // Finalize hold-heavy keys
+  for (const [, h] of Object.entries(holdHeavy)) {
+    h.avg_hold_ms = Math.round(h.total_hold_ms / Math.max(h.count, 1));
+    delete h.total_hold_ms;
+  }
+
   // ── App time tracking from charybdis_events.jsonl ──
   const appTime = {};  // exe -> seconds in foreground
   const appEvents = parseEvents();
@@ -121,6 +213,13 @@ function run(config) {
     if (dt > 0 && dt < 300) { // cap at 5 min per event gap (idle filter)
       appTime[exe] = (appTime[exe] || 0) + dt;
     }
+  }
+
+  // Merge app_focus time into appTime (more accurate when available)
+  for (const [exe, ms] of Object.entries(appFocusTime)) {
+    const key = exe.toLowerCase();
+    const sec = Math.round(ms / 1000);
+    if (sec > 0) appTime[key] = (appTime[key] || 0) + sec;
   }
 
   // ── Blind spot analysis ──
@@ -137,6 +236,11 @@ function run(config) {
     by_layer: byLayer,
     app_time_seconds: appTime,
     blind_spots: blindSpots,
+    mouse_clicks: mouseClicks,
+    scroll_events: scrollEvents,
+    layer_sessions: layerSessions,
+    hold_heavy: holdHeavy,
+    modifier_taps: modifierTaps,
   };
 
   writeBuild("usage_stats.json", output);
@@ -202,25 +306,10 @@ function analyzeBlindSpots(usedShortcuts, appTime, periodDays) {
   // and should not be flagged as blind spots just because they're not in the log
   // These shortcuts go directly from keyboard to OS/app — they never pass through
   // AHK's SendSafe, so absence from the log does NOT mean the user doesn't use them.
+  // With the expanded logger, most shortcuts are now actually captured.
+  // Only assume keys that Windows intercepts before AHK can see them.
   const ASSUMED_USED = new Set([
-    // Universal clipboard/edit
-    "Ctrl+C", "Ctrl+V", "Ctrl+X", "Ctrl+Z", "Ctrl+A", "Ctrl+S",
-    "Ctrl+Y", "Ctrl+Shift+Z",
-    // Navigation keys
-    "Enter", "Tab", "Escape", "Space", "Backspace", "Delete",
-    "Up", "Down", "Left", "Right",
-    "Ctrl+Left", "Ctrl+Right", "Ctrl+Up", "Ctrl+Down",
-    "Shift+Tab", "Ctrl+Enter",
-    // OS-level
-    "Alt+Tab", "Alt+F4", "Win+D", "Win+E", "Win+L",
-    // Browser basics (direct keyboard, not AHK-routed)
-    "Ctrl+T", "Ctrl+W", "Ctrl+Tab", "Ctrl+Shift+Tab",
-    "Ctrl+F", "Ctrl+R", "Ctrl+N", "Ctrl+Shift+T",
-    "Alt+Left", "Alt+Right",
-    // Common function keys
-    "F1", "F2", "F3", "F4", "F5", "F11", "F12",
-    // Common VS Code (direct keyboard)
-    "Ctrl+P", "Ctrl+Shift+P", "Ctrl+`", "Ctrl+B",
+    "Ctrl+Alt+Delete",
   ]);
   // Single bare keys that aren't real "shortcuts" (Vimium-style, game keys)
   const BARE_KEY_RE = /^[a-zA-Z0-9]$/;

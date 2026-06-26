@@ -4,7 +4,7 @@ const { readBuild, writeBuild } = require("./lib/io");
 const { effort, hand, LAYER_CONTEXTS } = require("./lib/constants");
 
 function loadWorkflowDefs() {
-  const dir = path.join(__dirname, "workflows");
+  const dir = path.join(__dirname, "..", "workflows");
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir)
     .filter((f) => f.endsWith(".json"))
@@ -105,7 +105,7 @@ function run(config) {
   const workflows = loadWorkflowDefs();
 
   if (workflows.length === 0) {
-    warnings.push("No workflow definitions found in scripts/keymap-optimizer/workflows/");
+    warnings.push("No workflow definitions found in workflows/");
     const output = { timestamp: new Date().toISOString(), results: [], rankings: [] };
     writeBuild("workflow_results.json", output);
     return { success: true, output, errors, warnings };

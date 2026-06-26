@@ -29,10 +29,10 @@ def _safe_replace(src, dst, retries=3):
 
 from representation import (
     build_position_index, build_shortcut_pool, build_layer_to_positions,
-    encode_current_layout, decode_genome,
+    encode_current_layout, decode_genome, build_scratch_genome,
 )
 from fitness import FitnessEvaluator
-from operators import custom_mutate, pmx_crossover
+from operators import custom_mutate, pmx_crossover, set_frozen_l0, set_frozen_l2_mouse
 
 HAS_TORCH = False
 try:
@@ -53,6 +53,12 @@ except ImportError:
 
 def load_config():
     config_path = Path(__file__).parent / "config.json"
+    with open(config_path) as f:
+        return json.load(f)
+
+
+def load_config_scratch():
+    config_path = Path(__file__).parent / "config_scratch.json"
     with open(config_path) as f:
         return json.load(f)
 
@@ -134,11 +140,88 @@ def load_previous_elites(build_dir, n_positions):
     return unique
 
 
+def preseed_unplaced_shortcuts(genome, positions, shortcut_pool, layer_positions):
+    """Place high-importance unassigned shortcuts into appropriate empty slots.
+    Also seeds mouse buttons onto L2 left-hand positions and clipboard onto L2."""
+    from representation import is_universal_shortcut, LAYER_ACCESS
+    genome = copy.copy(genome)
+    assigned_sids = set(int(g) for g in genome if g >= 0)
+
+    # Seed mouse buttons onto L2 left-hand low-effort positions first
+    l2_left_empty = sorted(
+        [p for p in layer_positions.get(2, [])
+         if genome[p.gene_idx] < 0 and p.hand == "left"],
+        key=lambda p: p.effort
+    )
+    mb_seeded = 0
+    for s in shortcut_pool:
+        if s.sid in assigned_sids:
+            continue
+        if 'select:mb' not in s.keys:
+            continue
+        if l2_left_empty:
+            p = l2_left_empty.pop(0)
+            genome[p.gene_idx] = s.sid
+            assigned_sids.add(s.sid)
+            mb_seeded += 1
+    if mb_seeded:
+        print(f"  Pre-seeded {mb_seeded} mouse buttons onto L2 left hand")
+
+    # Seed clipboard shortcuts onto L2 left hand
+    clipboard_keys = {'Ctrl+C', 'Ctrl+V', 'Ctrl+Z', 'Ctrl+X', 'Ctrl+A'}
+    clip_seeded = 0
+    for s in shortcut_pool:
+        if s.sid in assigned_sids or s.keys not in clipboard_keys:
+            continue
+        if l2_left_empty:
+            p = l2_left_empty.pop(0)
+            genome[p.gene_idx] = s.sid
+            assigned_sids.add(s.sid)
+            clip_seeded += 1
+    if clip_seeded:
+        print(f"  Pre-seeded {clip_seeded} clipboard shortcuts onto L2 left hand")
+
+    unplaced = [s for s in shortcut_pool if s.sid not in assigned_sids
+                and s.category != "base_key" and s.importance >= 3.0]
+    unplaced.sort(key=lambda s: -s.importance)
+
+    momentary_layers = {l for l, a in LAYER_ACCESS.items()
+                        if a["method"] in ("momentary", "momentary_or_locked")}
+
+    placed = 0
+    for s in unplaced:
+        best_pos = None
+        best_score = 999
+
+        for layer, pos_list in layer_positions.items():
+            layer_bonus = 0
+            if is_universal_shortcut(s) and layer in momentary_layers:
+                layer_bonus = -3
+            for p in pos_list:
+                if genome[p.gene_idx] >= 0:
+                    continue
+                score = p.effort + layer_bonus
+                if score < best_score:
+                    best_score = score
+                    best_pos = p
+
+        if best_pos is not None:
+            genome[best_pos.gene_idx] = s.sid
+            placed += 1
+
+    if placed > 0:
+        print(f"Pre-seeded {placed} high-importance shortcuts into empty slots")
+    return genome
+
+
 def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_positions,
                     build_dir=None):
     from operators import swap_within_layer, swap_to_empty, migrate_shortcut, custom_mutate
 
-    population = [copy.copy(current_genome)]
+    # Pre-seed unplaced important shortcuts into the base genome
+    seeded_genome = preseed_unplaced_shortcuts(current_genome, positions, shortcut_pool, layer_positions)
+
+    population = [copy.copy(seeded_genome)]
 
     prev_elites = load_previous_elites(build_dir, len(current_genome)) if build_dir else []
 
@@ -163,17 +246,17 @@ def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_posit
                     base = migrate_shortcut(base, positions, shortcut_pool, layer_positions)
             population.append(base)
 
-    # Conservative mutations of current layout
+    # Conservative mutations of seeded layout
     for _ in range(min(n_pop // 10, 50)):
-        ind = copy.copy(current_genome)
+        ind = copy.copy(seeded_genome)
         n_swaps = random.randint(1, 5)
         for _ in range(n_swaps):
             ind = swap_within_layer(ind, positions, layer_positions, shortcut_pool)
         population.append(ind)
 
-    # Fill rest with fresh exploration from current layout
+    # Fill rest with fresh exploration from seeded layout
     while len(population) < n_pop:
-        ind = copy.copy(current_genome)
+        ind = copy.copy(seeded_genome)
         n_swaps = random.randint(5, 20)
         for _ in range(n_swaps):
             r = random.random()
@@ -188,8 +271,26 @@ def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_posit
     return population[:n_pop]
 
 
+def seed_population_scratch(scratch_genome, n_pop, positions, shortcut_pool, layer_positions):
+    """Seed population for from-scratch mode. Each individual gets a random
+    number of shortcuts placed via importance-biased migrate_shortcut."""
+    from operators import swap_within_layer, migrate_shortcut
+
+    population = []
+    for _ in range(n_pop):
+        ind = copy.copy(scratch_genome)
+        n_placements = random.randint(50, min(300, len(shortcut_pool)))
+        for _ in range(n_placements):
+            ind = migrate_shortcut(ind, positions, shortcut_pool, layer_positions)
+        n_swaps = random.randint(0, 15)
+        for _ in range(n_swaps):
+            ind = swap_within_layer(ind, positions, layer_positions, shortcut_pool)
+        population.append(ind)
+    return population[:n_pop]
+
+
 def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
-              usage_stats=None, conjunction_pairs=None, build_dir=None):
+              usage_stats=None, conjunction_pairs=None, build_dir=None, scratch_mode=False):
     layer_positions = build_layer_to_positions(positions)
     n_pos = len(positions)
 
@@ -289,7 +390,7 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
         return creator.Individual(c1), creator.Individual(c2)
 
     def mutate(ind):
-        result = custom_mutate(list(ind), positions, shortcut_pool, layer_positions, dynamic_groups)
+        result = custom_mutate(list(ind), positions, shortcut_pool, layer_positions, dynamic_groups, scratch_mode=scratch_mode)
         return (creator.Individual(result[0]),)
 
     toolbox.register("mate", mate)
@@ -304,7 +405,10 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
     print(f"Seeding population: {pop_size} individuals, {n_pos} mutable positions")
     print(f"Device: {evaluator.device} | GPU batch eval: {use_gpu_batch}")
     sys.stdout.flush()
-    raw_pop = seed_population(current_genome, pop_size, positions, shortcut_pool, layer_positions, build_dir)
+    if scratch_mode:
+        raw_pop = seed_population_scratch(current_genome, pop_size, positions, shortcut_pool, layer_positions)
+    else:
+        raw_pop = seed_population(current_genome, pop_size, positions, shortcut_pool, layer_positions, build_dir)
     population = [creator.Individual(ind) for ind in raw_pop]
 
     def batch_evaluate(pop_list):
@@ -324,7 +428,8 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
     logbook.header = ["gen", "nevals", "min", "avg"]
 
     checkpoint_interval = config.get("checkpoint_interval", 25)
-    checkpoint_path = os.path.join(build_dir, "evolution_checkpoint.json") if build_dir else None
+    ckpt_name = "evolution_scratch_checkpoint.json" if scratch_mode else "evolution_checkpoint.json"
+    checkpoint_path = os.path.join(build_dir, ckpt_name) if build_dir else None
 
     # Try to resume from checkpoint
     start_gen = 0
@@ -410,7 +515,8 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                     "genome": genome,
                     "total_assignments": sum(1 for g in genome if g >= 0),
                 })
-            interim_path = os.path.join(build_dir, "evolution_results_interim.json")
+            interim_name = "evolution_scratch_results_interim.json" if scratch_mode else "evolution_results_interim.json"
+            interim_path = os.path.join(build_dir, interim_name)
             tmp = interim_path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump({
@@ -465,7 +571,7 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                 save_checkpoint(gen)
                 save_interim_results(gen)
 
-            if plateau_count >= 200:
+            if plateau_count >= 400:
                 print(f"  EARLY STOP: violations plateaued for {plateau_count} gens at gen {gen}")
                 sys.stdout.flush()
                 break
@@ -531,7 +637,7 @@ def run_qd(evaluator, current_genome, positions, shortcut_pool, config):
         else:
             parent = copy.copy(current_genome)
 
-        child = custom_mutate(parent, positions, shortcut_pool, layer_positions, evaluator.dynamic_groups)[0]
+        child = custom_mutate(parent, positions, shortcut_pool, layer_positions, evaluator.dynamic_groups, scratch_mode=False)[0]
         child_arr = np.array(child, dtype=np.float64)
         fitness_tuple = evaluator.evaluate(child)
         obj = -fitness_tuple[0]
@@ -560,26 +666,51 @@ def run_qd(evaluator, current_genome, positions, shortcut_pool, config):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python run_evolution.py <build_dir>")
+        print("Usage: python run_evolution.py <build_dir> [--scratch]")
         sys.exit(1)
 
     build_dir = sys.argv[1]
-    config = load_config()
+    scratch_mode = "--scratch" in sys.argv
+
+    config = load_config_scratch() if scratch_mode else load_config()
 
     if config.get("seed") is not None:
         random.seed(config["seed"])
         np.random.seed(config["seed"])
 
     print("=" * 60)
-    print("CHARYBDIS EVOLUTIONARY LAYOUT OPTIMIZER")
+    if scratch_mode:
+        print("CHARYBDIS FROM-SCRATCH LAYOUT OPTIMIZER")
+    else:
+        print("CHARYBDIS EVOLUTIONARY LAYOUT OPTIMIZER")
     print("=" * 60)
 
     canonical, scores, usage_stats, _ = load_build_data(build_dir)
     conjunction_pairs = build_conjunction_pairs_from_scores(scores)
 
-    frozen = set(config.get("frozen_layers", [0, 6, 7, 8]))
+    # Merge real-world usage sequences as conjunction pairs (stronger than corpus-derived)
+    usage_sequences = usage_stats.get("sequences", {})
+    usage_conj_count = 0
+    for seq_key, seq_data in usage_sequences.items():
+        parts = seq_key.split(" -> ")
+        if len(parts) != 2:
+            continue
+        count = seq_data.get("count", 0)
+        avg_gap = seq_data.get("avg_gap_ms", 9999)
+        if count < 1 or avg_gap > 5000:
+            continue
+        # Weight: faster transitions = stronger pairing, count amplifies
+        speed_weight = max(0.5, 2.0 - avg_gap / 2000.0)
+        weight = count * speed_weight * 0.5
+        pair_key = "|".join(sorted(parts))
+        conjunction_pairs[pair_key] = conjunction_pairs.get(pair_key, 0) + weight
+        usage_conj_count += 1
+    if usage_conj_count:
+        print(f"Added {usage_conj_count} usage-derived conjunction pairs")
+
+    frozen = set(config.get("frozen_layers", [7]))
     positions = build_position_index(canonical, frozen)
-    shortcut_pool = build_shortcut_pool(scores)
+    shortcut_pool = build_shortcut_pool(scores, canonical)
 
     print(f"\nPositions: {len(positions)} mutable ({sum(1 for p in positions if p.is_thumb)} thumb)")
     print(f"Shortcuts: {len(shortcut_pool)} in corpus")
@@ -601,7 +732,25 @@ def main():
     print(f"CPU cores: {cpu_count()}")
     sys.stdout.flush()
 
-    current_genome = encode_current_layout(canonical, positions, shortcut_pool, frozen)
+    if scratch_mode:
+        current_genome = build_scratch_genome(canonical, positions, shortcut_pool)
+        # Freeze assigned L0 keys (letters, numbers, etc.), leave empty L0 thumbs open
+        open_l0 = [i for i, p in enumerate(positions) if p.layer == 0 and current_genome[i] < 0]
+        set_frozen_l0(positions, open_l0)
+    else:
+        current_genome = encode_current_layout(canonical, positions, shortcut_pool)
+        # Freeze most L0 positions — only configured keys are open
+        open_l0_keys = set(config.get("open_l0_keys", []))
+        if open_l0_keys:
+            open_indices = []
+            for i, p in enumerate(positions):
+                if p.layer == 0 and current_genome[i] >= 0:
+                    key_name = shortcut_pool[current_genome[i]].keys
+                    if key_name in open_l0_keys:
+                        open_indices.append(i)
+            set_frozen_l0(positions, open_indices)
+
+    # L2 mouse no longer frozen — protected by mouse_accessibility reward
 
     evaluator = FitnessEvaluator(
         positions, shortcut_pool, config,
@@ -624,7 +773,7 @@ def main():
     sys.stdout.flush()
     front, convergence = run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                                     usage_stats=usage_stats, conjunction_pairs=conjunction_pairs,
-                                    build_dir=build_dir)
+                                    build_dir=build_dir, scratch_mode=scratch_mode)
 
     pareto_solutions = []
     for i, ind in enumerate(front[:config.get("pareto_front_size", 20)]):
@@ -708,14 +857,19 @@ def main():
                 return obj.tolist()
             return super().default(obj)
 
-    out_path = os.path.join(build_dir, "evolution_results.json")
+    results_name = "evolution_scratch_results.json" if scratch_mode else "evolution_results.json"
+    out_path = os.path.join(build_dir, results_name)
     tmp_path = out_path + ".tmp"
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2, cls=NumpyEncoder)
     _safe_replace(tmp_path, out_path)
 
     # Clean up checkpoint and interim on successful completion
-    for cleanup in ["evolution_checkpoint.json", "evolution_results_interim.json"]:
+    if scratch_mode:
+        cleanup_files = ["evolution_scratch_checkpoint.json", "evolution_scratch_results_interim.json"]
+    else:
+        cleanup_files = ["evolution_checkpoint.json", "evolution_results_interim.json"]
+    for cleanup in cleanup_files:
         p = os.path.join(build_dir, cleanup)
         if os.path.exists(p):
             os.remove(p)

@@ -1,5 +1,5 @@
 const { loadCsv } = require("./lib/csv");
-const { readSource, readJson, writeBuild, ROOT, SIBLING_ZMK, sourceExists } = require("./lib/io");
+const { readSource, readJson, writeBuild, ROOT, SIBLING_ZMK, SIBLING_COACH, sourceExists } = require("./lib/io");
 const { normalizeParam, normalizeModifiers, normalizeBehavior } = require("./lib/normalize");
 const { ALL_COLS, ALL_ROWS, LAYER_NAMES, hand, FINGER_MAP } = require("./lib/constants");
 const path = require("path");
@@ -54,15 +54,15 @@ function parseApplySource() {
 }
 
 function parseWorkflowSources() {
-  const indexPath = "apps/charybdis-coach/workflows/index.json";
-  if (!sourceExists(indexPath)) return { path: indexPath, fileCount: 0, apps: {}, shortcutCount: 0 };
-  const index = readJson(indexPath);
+  const indexPath = path.join(SIBLING_COACH, "workflows", "index.json");
+  if (!fs.existsSync(indexPath)) return { path: indexPath, fileCount: 0, apps: {}, shortcutCount: 0 };
+  const index = JSON.parse(fs.readFileSync(indexPath, "utf-8"));
   const apps = {};
   let shortcutCount = 0;
   for (const entry of (index.apps || [])) {
-    const filePath = `apps/charybdis-coach/workflows/${entry.file}`;
-    if (!sourceExists(filePath)) continue;
-    const data = readJson(filePath);
+    const filePath = path.join(SIBLING_COACH, "workflows", entry.file);
+    if (!fs.existsSync(filePath)) continue;
+    const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
     const refs = [];
     for (const cat of (data.categories || [])) {
       for (const s of (cat.shortcuts || [])) {

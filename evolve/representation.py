@@ -210,8 +210,34 @@ def discover_dynamic_groups(conjunction_pairs, usage_stats, shortcut_pool, thres
 
     groups = []
     used_sids = set()
-    sorted_pairs = sorted(pair_weights.items(), key=lambda x: -x[1])
 
+    # Chain-derived groups: chains with 3+ members become multi-SID groups
+    chains = usage_stats.get("chains", {})
+    for chain_key, chain_data in chains.items():
+        parts = chain_key.split(" -> ")
+        count = chain_data if isinstance(chain_data, (int, float)) else chain_data.get("count", 0)
+        if count < 3 or len(parts) < 3:
+            continue
+        chain_sids = []
+        for p in parts:
+            sid = sid_lookup.get(p)
+            if sid is not None and sid not in chain_sids:
+                chain_sids.append(sid)
+        if len(chain_sids) < 3:
+            continue
+        name = f"chain_{'_'.join(shortcut_pool[s].keys for s in chain_sids[:3])}"
+        groups.append({
+            "name": name,
+            "sids": chain_sids,
+            "weight": 1.0,
+            "protected": True,
+            "dynamic": True,
+        })
+        for s in chain_sids:
+            used_sids.add(s)
+
+    # Pair-derived groups from conjunction weights
+    sorted_pairs = sorted(pair_weights.items(), key=lambda x: -x[1])
     for (sid_a, sid_b), w in sorted_pairs:
         norm_w = w / max_w
         if norm_w < threshold:

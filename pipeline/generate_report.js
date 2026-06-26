@@ -3,14 +3,19 @@ const { LAYER_NAMES, effort, LEFT_COLS, RIGHT_COLS } = require("./lib/constants"
 const fs = require("fs");
 const path = require("path");
 
+function tryReadBuild(name) {
+  try { return readBuild(name); } catch { return null; }
+}
+
 function run(config) {
-  const canonical = readBuild("canonical.json");
-  const sync = readBuild("sync_report.json");
-  const resolved = readBuild("resolved_layout.json");
-  const graph = readBuild("layer_graph.json");
-  const ergo = readBuild("ergonomic_scores.json");
-  const workflows = readBuild("workflow_results.json");
-  const appScores = readBuild("app_shortcut_scores.json");
+  const canonical = tryReadBuild("canonical.json");
+  if (!canonical) { return { skipped: true, reason: "canonical.json not found in build/" }; }
+  const sync = tryReadBuild("sync_report.json") || {};
+  const resolved = tryReadBuild("resolved_layout.json") || {};
+  const graph = tryReadBuild("layer_graph.json") || {};
+  const ergo = tryReadBuild("ergonomic_scores.json") || {};
+  const workflows = tryReadBuild("workflow_results.json") || {};
+  const appScores = tryReadBuild("app_shortcut_scores.json") || {};
 
   const lines = [];
   const w = (s) => lines.push(s);

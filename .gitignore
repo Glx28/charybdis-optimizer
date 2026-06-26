@@ -1,6 +1,11 @@
 build/*.json
 !build/canonical.json
 !build/app_shortcut_scores.json
+build/best_runs/
+build/run_logs/
 __pycache__/
 *.pyc
 .env
+AGENTS.md
+save_best_run.ps1
+wait_and_save.ps1

@@ -333,8 +333,10 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
     creator.create("FitnessMulti", base.Fitness, weights=(-1.0, -1.0, -1.0))
     creator.create("Individual", list, fitness=creator.FitnessMulti)
 
-    def fast_selNSGA2(individuals, k):
-        """GPU-accelerated NSGA-II selection using PyTorch for dominance checks."""
+    violation_threshold = [100000.0]  # mutable; decreases over generations
+
+    def _nsga2_core(individuals, k):
+        """Core NSGA-II: Pareto fronts + crowding distance."""
         n = len(individuals)
         fits_np = np.array([ind.fitness.values for ind in individuals], dtype=np.float32)
 
@@ -355,19 +357,15 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
             m = len(idxs)
 
             if d and m > 50:
-                # GPU dominance check: f[j] dominates f[i] iff all(f[j]<=f[i]) and any(f[j]<f[i])
                 f = fits_t[torch.tensor(idxs, device=d, dtype=torch.long)]
-                # Process in chunks to fit VRAM: each chunk checks (chunk, m, 3)
                 dominated = torch.zeros(m, device=d, dtype=torch.bool)
                 GPU_CHUNK = min(m, 2000)
                 for ci in range(0, m, GPU_CHUNK):
                     ce = min(ci + GPU_CHUNK, m)
-                    chunk = f[ci:ce]  # (cs, 3)
-                    # j dominates i: all(f[j] <= chunk[i]) and any(f[j] < chunk[i])
-                    le = (f.unsqueeze(0) <= chunk.unsqueeze(1))  # (cs, m, 3)
-                    lt = (f.unsqueeze(0) < chunk.unsqueeze(1))   # (cs, m, 3)
-                    dom = le.all(dim=2) & lt.any(dim=2)  # (cs, m)
-                    # Zero out self-domination
+                    chunk = f[ci:ce]
+                    le = (f.unsqueeze(0) <= chunk.unsqueeze(1))
+                    lt = (f.unsqueeze(0) < chunk.unsqueeze(1))
+                    dom = le.all(dim=2) & lt.any(dim=2)
                     arange = torch.arange(ci, ce, device=d)
                     dom[torch.arange(ce - ci, device=d), arange] = False
                     dominated[ci:ce] = dom.any(dim=1)
@@ -407,8 +405,19 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                 break
             front_rank += 1
 
-        selected = [individuals[i] for i in range(n) if ranks[i] >= 0]
-        return selected
+        return [individuals[i] for i in range(n) if ranks[i] >= 0]
+
+    def fast_selNSGA2(individuals, k):
+        """Feasibility-first NSGA-II: prefer feasible individuals (violations below threshold)."""
+        fits_np = np.array([ind.fitness.values for ind in individuals], dtype=np.float32)
+        viol_col = fits_np[:, 2]
+        feasible_mask = viol_col <= violation_threshold[0]
+        n_feasible = int(feasible_mask.sum())
+
+        if 0 < n_feasible < len(individuals) and n_feasible >= k:
+            feasible_inds = [individuals[i] for i in range(len(individuals)) if feasible_mask[i]]
+            return _nsga2_core(feasible_inds, k)
+        return _nsga2_core(individuals, k)
 
     toolbox = base.Toolbox()
     toolbox.register("evaluate", evaluator.evaluate)
@@ -420,8 +429,11 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
         c1, c2 = pmx_crossover(list(ind1), list(ind2), positions, layer_positions, shortcut_pool, dynamic_groups)
         return creator.Individual(c1), creator.Individual(c2)
 
+    current_gen = [0]  # mutable container for closure access
+
     def mutate(ind):
-        result = custom_mutate(list(ind), positions, shortcut_pool, layer_positions, dynamic_groups, scratch_mode=scratch_mode)
+        result = custom_mutate(list(ind), positions, shortcut_pool, layer_positions,
+                               dynamic_groups, scratch_mode=scratch_mode, generation=current_gen[0])
         return (creator.Individual(result[0]),)
 
     toolbox.register("mate", mate)
@@ -575,6 +587,7 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
 
     try:
         for gen in range(start_gen, n_gen):
+            current_gen[0] = gen
             offspring = algorithms.varAnd(population, toolbox, cxpb, mutpb)
 
             invalid = [ind for ind in offspring if not ind.fitness.valid]
@@ -597,6 +610,9 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                 plateau_count = 0
             else:
                 plateau_count += 1
+
+            # Decay violation threshold for feasibility-first selection
+            violation_threshold[0] = max(5000.0, current_best_viol * 2.0)
 
             if gen % checkpoint_interval == 0 or gen == n_gen - 1:
                 elapsed = time.time() - t0

@@ -492,11 +492,36 @@ def cross_layer_deduplicate(genome, positions, shortcut_pool, layer_positions=No
     return genome
 
 
-def custom_mutate(genome, positions, shortcut_pool, layer_positions=None, dynamic_groups=None, scratch_mode=False):
+def _pick_operator(r, phase):
+    """Return operator index based on random value and evolution phase.
+    Phase: 'explore' (gen 0-200), 'balanced' (200-1000), 'exploit' (1000+)."""
+    if phase == "explore":
+        # Heavy on migrate + cross-layer dedup to fill positions and reduce duplication
+        thresholds = [0.05, 0.10, 0.40, 0.46, 0.52, 0.60, 0.68, 0.73, 0.80, 1.00]
+    elif phase == "exploit":
+        # Heavy on within-layer swap + coherence + deduplicate for refinement
+        thresholds = [0.20, 0.26, 0.36, 0.42, 0.48, 0.60, 0.75, 0.80, 0.86, 1.00]
+    else:
+        thresholds = [0.08, 0.14, 0.35, 0.42, 0.48, 0.60, 0.70, 0.76, 0.84, 1.00]
+    for i, t in enumerate(thresholds):
+        if r < t:
+            return i
+    return 9
+
+
+def custom_mutate(genome, positions, shortcut_pool, layer_positions=None,
+                  dynamic_groups=None, scratch_mode=False, generation=0):
     if layer_positions is None:
         layer_positions = build_layer_to_positions(positions)
     r = random.random()
     if scratch_mode:
+        if generation < 200:
+            phase = "explore"
+        elif generation < 800:
+            phase = "balanced"
+        else:
+            phase = "exploit"
+        # Scratch uses explore-heavy rates regardless of phase in early gens
         if r < 0.40:
             return (migrate_shortcut(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
         elif r < 0.55:
@@ -509,26 +534,28 @@ def custom_mutate(genome, positions, shortcut_pool, layer_positions=None, dynami
             return (deduplicate(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
         else:
             return (move_group(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
-    if r < 0.08:
-        return (swap_within_layer(genome, positions, layer_positions, shortcut_pool, dynamic_groups),)
-    elif r < 0.14:
-        return (swap_to_empty(genome, positions, layer_positions, shortcut_pool, dynamic_groups),)
-    elif r < 0.35:
-        return (migrate_shortcut(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
-    elif r < 0.42:
-        return (move_group(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
-    elif r < 0.48:
-        return (thumb_fill(genome, positions, shortcut_pool, layer_positions),)
-    elif r < 0.60:
-        return (deduplicate(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
-    elif r < 0.70:
-        return (improve_coherence(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
-    elif r < 0.76:
-        return (swap_layer_content(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
-    elif r < 0.84:
-        return (redistribute_shortcuts(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
+
+    if generation < 200:
+        phase = "explore"
+    elif generation < 1000:
+        phase = "balanced"
     else:
-        return (cross_layer_deduplicate(genome, positions, shortcut_pool, layer_positions, dynamic_groups),)
+        phase = "exploit"
+
+    ops = [
+        lambda: swap_within_layer(genome, positions, layer_positions, shortcut_pool, dynamic_groups),
+        lambda: swap_to_empty(genome, positions, layer_positions, shortcut_pool, dynamic_groups),
+        lambda: migrate_shortcut(genome, positions, shortcut_pool, layer_positions, dynamic_groups),
+        lambda: move_group(genome, positions, shortcut_pool, layer_positions, dynamic_groups),
+        lambda: thumb_fill(genome, positions, shortcut_pool, layer_positions),
+        lambda: deduplicate(genome, positions, shortcut_pool, layer_positions, dynamic_groups),
+        lambda: improve_coherence(genome, positions, shortcut_pool, layer_positions, dynamic_groups),
+        lambda: swap_layer_content(genome, positions, shortcut_pool, layer_positions, dynamic_groups),
+        lambda: redistribute_shortcuts(genome, positions, shortcut_pool, layer_positions, dynamic_groups),
+        lambda: cross_layer_deduplicate(genome, positions, shortcut_pool, layer_positions, dynamic_groups),
+    ]
+    idx = _pick_operator(r, phase)
+    return (ops[idx](),)
 
 
 def pmx_crossover(parent1, parent2, positions, layer_positions=None, pool=None, dynamic_groups=None):

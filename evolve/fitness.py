@@ -80,13 +80,10 @@ class FitnessEvaluator:
         unique_layers = sorted(set(p.layer for p in self.positions))
         n_layers = max(unique_layers) + 1 if unique_layers else 0
         self.layer_usage_mult = np.ones((S + 1, n_layers), dtype=np.float32)
+        sid_by_keys = {s.keys: s.sid for s in self.pool}
         by_layer_shortcut = self.usage_stats.get("by_layer_shortcut", {})
         for keys, layer_counts in by_layer_shortcut.items():
-            sid = None
-            for s in self.pool:
-                if s.keys == keys:
-                    sid = s.sid
-                    break
+            sid = sid_by_keys.get(keys)
             if sid is None:
                 continue
             total = sum(layer_counts.values())
@@ -305,11 +302,8 @@ class FitnessEvaluator:
                     self.zmk_incompat_arr[s.sid] = 1.0
 
     def _build_layer_context_mask(self):
-        """Layer context is no longer hardcoded. App coherence emerges from
-        conjunction pairs and the app-coherence reward. The pos_violation matrix
-        is zeroed — no per-position app-based violations."""
-        S = self.n_shortcuts
-        self.pos_violation = np.zeros((self.n_positions, S + 1), dtype=np.float32)
+        """No-op: layer context emerges from app-coherence reward, not violations."""
+        pass
 
     def _build_app_coherence_data(self):
         """Precompute per-shortcut app sets for the app-coherence reward.
@@ -617,7 +611,6 @@ class FitnessEvaluator:
         self.t_y_arr = torch.tensor(self.y_arr, device=d, dtype=torch.long)
         self.t_dist_matrix = torch.tensor(self.dist_matrix, device=d)
         self.t_zmk_incompat = torch.tensor(self.zmk_incompat_arr, device=d)
-        self.t_pos_violation = torch.tensor(self.pos_violation, device=d)
 
         # App coherence GPU data: primary app ID per shortcut
         unique_apps = sorted(set(app for apps in self.shortcut_app_sets.values() for app in apps))
@@ -1048,12 +1041,6 @@ class FitnessEvaluator:
                     ma_bonus * self.weights.get("mouse_accessibility", 5.0)
 
         # ── VIOLATIONS ──
-        # Layer context: gather from precomputed violation matrix, weighted by importance
-        viol_per_pos = torch.gather(self.t_pos_violation.unsqueeze(0).expand(B, -1, -1),
-                                    2, t_g.unsqueeze(2)).squeeze(2)  # (B, N)
-        viol_imp_weight = 1.0 + imp * 0.5  # importance-weighted violations
-        layer_viol = (viol_per_pos * assigned_f * viol_imp_weight).sum(dim=1)
-
         # ZMK compat
         zmk_viol = (self.t_zmk_incompat[t_g] * assigned_f).sum(dim=1)
 
@@ -1091,7 +1078,7 @@ class FitnessEvaluator:
             cur_sids = cur_t.clone()
             cur_sids[cur_sids < 0] = S
             cur_imp = self.t_importance[cur_sids]
-            unassign_viol = (removed.float() * (2.0 + cur_imp.unsqueeze(0).pow(2) * 0.8)).sum(dim=1)
+            unassign_viol = (removed.float() * (5.0 + cur_imp.unsqueeze(0).pow(2) * 2.0)).sum(dim=1)
 
         # Group-split violations: spatial split + group integrity (partial groups)
         group_split_viol = torch.zeros(B, device=d)
@@ -1180,14 +1167,14 @@ class FitnessEvaluator:
                 present = torch.zeros(B, S + 1, device=d)
                 present.scatter_(1, sids_on_layer.clamp(max=S), 1.0)
                 sid_layer_count += present[:, :S]
-            # Penalize sids on 3+ layers
+            # Penalize sids on 3+ layers — escalating quadratic with waste factor
             excess = (sid_layer_count - 2).clamp(min=0)  # (B, S)
-            imp_penalty = 1.0 + self.t_importance[:S].unsqueeze(0) * 0.3  # (1, S)
-            cross_dupe_viol = (excess * imp_penalty).sum(dim=1)
+            waste_factor = (10.0 - self.t_importance[:S].unsqueeze(0)).clamp(min=1.0)  # (1, S)
+            cross_dupe_viol = (excess.pow(2) * waste_factor).sum(dim=1)
 
         dupe_weight = self.weights.get("duplicate", 10.0)
         group_split_weight = self.weights.get("group_split", 50.0)
-        viol_total = layer_viol * self.weights.get("violations", 10.0) + \
+        viol_total = \
                      zmk_viol * self.weights.get("zmk_compatibility", 20.0) + \
                      dupe_viol * dupe_weight + \
                      unassign_viol * self.weights.get("unassignment", 15.0) + \
@@ -1204,7 +1191,7 @@ class FitnessEvaluator:
                 lidx = torch.tensor(layer_idxs, device=d, dtype=torch.long)
                 layer_sids = t_g[:, lidx]
                 has_base = (layer_sids.unsqueeze(2) == base_sids.unsqueeze(0).unsqueeze(0)).any(dim=2).any(dim=1)
-                toggled_base_viol += (~has_base).float() * 500.0
+                toggled_base_viol += (~has_base).float() * 5000.0
         viol_total += toggled_base_viol * self.weights.get("violations", 10.0)
 
         # L0-only base key displacement: letters/numbers on non-L0 layers
@@ -1213,6 +1200,9 @@ class FitnessEvaluator:
         displaced = l0_only_flags * not_l0_layer * assigned_f
         l0_displace_viol = (displaced * (50.0 + imp * 2.0)).sum(dim=1)
         viol_total += l0_displace_viol * self.weights.get("violations", 10.0)
+
+        # Violation-effort coupling: high violations inflate effort
+        effort_total = torch.where(viol_total > 10000, effort_total + viol_total * 0.5, effort_total)
 
         e = effort_total.cpu().numpy()
         a = adj_total.cpu().numpy()
@@ -1412,7 +1402,7 @@ class FitnessEvaluator:
             return HARD_INVALID_FITNESS
         w = self.weights.get("violations", 10.0)
         total = 0.0
-        total += self._layer_context_violations(genome) * w
+        # layer_context_violations removed — always 0, app coherence is reward-based
         total += self._group_split_violations(genome) * self.weights.get("group_split", 50.0)
         total += self._duplicate_violations(genome) * self.weights.get("duplicate", 10.0)
         total += self._zmk_compatibility(genome) * self.weights.get("zmk_compatibility", 20.0)
@@ -1654,15 +1644,6 @@ class FitnessEvaluator:
 
     def _zmk_compatibility(self, genome):
         return float(sum(1 for i, sid in enumerate(genome) if sid >= 0 and sid in self.zmk_incompat))
-
-    def _compute_layer_app_dominance(self, genome):
-        """Kept for compatibility with evaluate_full breakdown."""
-        return {}
-
-    def _layer_context_violations(self, genome):
-        """No hardcoded layer-app context. Returns 0 — layer themes emerge
-        from app-coherence reward and conjunction pairs."""
-        return 0.0
 
     def _app_coherence_score(self, genome):
         """Reward shortcuts sharing their primary app on the same layer.

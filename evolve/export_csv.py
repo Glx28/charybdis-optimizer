@@ -124,6 +124,9 @@ def main():
     headers = ["layer", "layer_role", "x", "y", "visual_label", "behavior",
                "parameter", "modifiers", "purpose", "usage_notes"]
 
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Canonical CSV not found at {csv_path} — cannot generate evolved CSV")
+
     if os.path.exists(csv_path):
         with open(csv_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)

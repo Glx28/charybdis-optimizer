@@ -134,8 +134,15 @@ class FitnessEvaluator:
         self._build_conjunction_data()
         self._build_distance_matrix()
 
-        self.toggled_layers = {5, 9, 10}
-        self.momentary_layers = {1, 2, 3, 4}
+        from .representation import LAYER_ACCESS
+        self.toggled_layers = {
+            layer for layer, info in LAYER_ACCESS.items()
+            if info.get("method") == "toggled"
+        }
+        self.momentary_layers = {
+            layer for layer, info in LAYER_ACCESS.items()
+            if "momentary" in info.get("method", "")
+        }
         self._build_thumb_busy_penalty()
         self._build_layer_importance_multipliers()
         self.base_accessible_sids = self._find_base_accessible()
@@ -439,18 +446,18 @@ class FitnessEvaluator:
                 self.toggled_layer_extra[i] = 1.0  # +1.0 on top of existing effort
 
     def _build_toggled_base_requirement(self):
-        """Precompute: for each toggled layer, which thumb positions exist and
+        """Precompute: for each toggled layer, which positions exist and
         which SIDs are coach_base/coach_recover_base (return-to-L0 keys)."""
-        self.toggled_thumb_indices = {}  # layer -> list of thumb position indices
+        self.toggled_layer_indices = {}
         self.coach_base_sids = set()
         for s in self.pool:
             if s.keys in ('_base_coach_base', '_base_coach_recover_base'):
                 self.coach_base_sids.add(s.sid)
         for layer in self.toggled_layers:
-            thumbs = [i for i, p in enumerate(self.positions)
-                      if p.layer == layer and p.is_thumb]
-            if thumbs:
-                self.toggled_thumb_indices[layer] = thumbs
+            indices = [i for i, p in enumerate(self.positions)
+                       if p.layer == layer]
+            if indices:
+                self.toggled_layer_indices[layer] = indices
 
     # Base keys that only make sense on L0 — letters, numbers, basic punctuation.
     # These produce a character when pressed and serve no purpose on layers.
@@ -1065,15 +1072,15 @@ class FitnessEvaluator:
                      redundancy_viol * self.weights.get("momentary_redundancy", 5.0) + \
                      cross_dupe_viol * self.weights.get("cross_layer_duplicate", 8.0)
 
-        # Toggled layer base requirement: penalize toggled layers without coach_base in thumb
+        # Toggled layer base requirement: penalize toggled layers without coach_base anywhere
         toggled_base_viol = torch.zeros(B, device=d)
-        if self.toggled_thumb_indices and self.coach_base_sids:
+        if self.toggled_layer_indices and self.coach_base_sids:
             base_sids = torch.tensor(sorted(self.coach_base_sids), device=d, dtype=torch.long)
-            for layer, thumb_idxs in self.toggled_thumb_indices.items():
-                tidx = torch.tensor(thumb_idxs, device=d, dtype=torch.long)
-                thumb_sids = t_g[:, tidx]  # (B, n_thumbs)
-                has_base = (thumb_sids.unsqueeze(2) == base_sids.unsqueeze(0).unsqueeze(0)).any(dim=2).any(dim=1)
-                toggled_base_viol += (~has_base).float() * 20.0
+            for layer, layer_idxs in self.toggled_layer_indices.items():
+                lidx = torch.tensor(layer_idxs, device=d, dtype=torch.long)
+                layer_sids = t_g[:, lidx]
+                has_base = (layer_sids.unsqueeze(2) == base_sids.unsqueeze(0).unsqueeze(0)).any(dim=2).any(dim=1)
+                toggled_base_viol += (~has_base).float() * 500.0
         viol_total += toggled_base_viol * self.weights.get("violations", 10.0)
 
         # L0-only base key displacement: letters/numbers on non-L0 layers
@@ -1206,15 +1213,15 @@ class FitnessEvaluator:
         return total
 
     def _toggled_base_violation(self, genome):
-        """Penalize toggled layers that lack a coach_base key in the thumb area."""
+        """Penalize toggled layers that lack a coach_base key anywhere on the layer."""
         penalty = 0.0
-        for layer, thumb_indices in self.toggled_thumb_indices.items():
+        for layer, indices in self.toggled_layer_indices.items():
             has_base = any(
                 genome[i] >= 0 and genome[i] in self.coach_base_sids
-                for i in thumb_indices
+                for i in indices
             )
             if not has_base:
-                penalty += 20.0  # heavy: user gets stuck on layer
+                penalty += 500.0
         return penalty
 
     def _l0_key_displacement_violation(self, genome):

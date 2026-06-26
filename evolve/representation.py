@@ -719,9 +719,9 @@ def encode_current_layout(canonical, positions, shortcut_pool):
 
 
 def build_scratch_genome(canonical, positions, shortcut_pool):
-    """Build a genome with only physically locked L0 keys assigned.
-    L0 non-thumb (y<4): letters, numbers, punctuation, modifiers — kept.
-    Layer-access keys are also kept as a valid seed, but remain movable."""
+    """Build a genome seeded with L0 keys + access keys + greedy importance-first fill.
+    The greedy fill places unassigned high-importance shortcuts on low-effort empty
+    positions, giving the optimizer a valid starting point instead of ~400 empty slots."""
     full_genome = encode_current_layout(canonical, positions, shortcut_pool)
     scratch = [-1] * len(positions)
     access_keys = {
@@ -739,6 +739,26 @@ def build_scratch_genome(canonical, positions, shortcut_pool):
             skey = shortcut_pool[full_genome[i]].keys
             if skey in access_keys or skey.startswith(("_base_toggle_layer_", "_base_momentary_layer_", "_base_to_layer_")):
                 scratch[i] = full_genome[i]
+
+    assigned_sids = set(g for g in scratch if g >= 0)
+    unplaced = [s for s in shortcut_pool if s.sid not in assigned_sids and s.importance >= 1.0
+                and s.category != "base_key"]
+    unplaced.sort(key=lambda s: -s.importance)
+
+    empty_positions = [(i, positions[i]) for i in range(len(positions))
+                       if scratch[i] < 0 and positions[i].layer > 0]
+    empty_positions.sort(key=lambda x: x[1].effort)
+
+    placed = set()
+    for s in unplaced:
+        if s.sid in placed:
+            continue
+        for j, (idx, pos) in enumerate(empty_positions):
+            if scratch[idx] < 0:
+                scratch[idx] = s.sid
+                placed.add(s.sid)
+                break
+
     return scratch
 
 

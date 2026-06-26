@@ -1240,6 +1240,8 @@ class FitnessEvaluator:
         obj1 = self._effort_score(genome)
         obj2 = self._adjacency_score(genome)
         obj3 = self._violation_score(genome)
+        if obj3 > 10000:
+            obj1 += obj3 * 0.5
         return (obj1, -obj2, obj3)
 
     def evaluate_full(self, genome):
@@ -1423,7 +1425,8 @@ class FitnessEvaluator:
         return total
 
     def _toggled_base_violation(self, genome):
-        """Penalize toggled layers that lack a coach_base key anywhere on the layer."""
+        """Penalize toggled layers that lack a coach_base key anywhere on the layer.
+        Missing exit = keyboard soft-lock, so penalty is near-catastrophic."""
         penalty = 0.0
         for layer, indices in self.toggled_layer_indices.items():
             has_base = any(
@@ -1431,7 +1434,7 @@ class FitnessEvaluator:
                 for i in indices
             )
             if not has_base:
-                penalty += 500.0
+                penalty += 5000.0
         return penalty
 
     def _l0_key_displacement_violation(self, genome):
@@ -1573,14 +1576,15 @@ class FitnessEvaluator:
         return top3 / total if total > 0 else 0.5
 
     def _unassignment_penalty(self, genome):
-        """Heavy penalty for removing a shortcut that was assigned in the current layout."""
+        """Heavy penalty for removing a shortcut that was assigned in the current layout.
+        Scales quadratically with importance so high-value keys are strongly retained."""
         if self.current_genome is None:
             return 0.0
         penalty = 0.0
         for i in range(len(genome)):
             if self.current_genome[i] >= 0 and genome[i] < 0:
                 imp = self.importance_arr[self.current_genome[i]]
-                penalty += 2.0 + imp * imp * 0.8
+                penalty += 5.0 + imp * imp * 2.0
         return penalty
 
     def _learning_curve(self, genome, original=None):
@@ -1974,9 +1978,8 @@ class FitnessEvaluator:
 
     def _cross_layer_duplicate_penalty(self, genome):
         """Penalize shortcuts that appear on more than 2 layers.
-        Having a shortcut on 2 layers is acceptable (e.g. Ctrl+S on L4 and L5).
-        3+ copies across layers wastes positions that could hold unique shortcuts."""
-        from collections import Counter
+        Escalating cost per extra copy — low-importance duplicates penalized harder
+        since they waste positions that high-importance unplaced shortcuts need."""
         sid_layers = {}
         for i, sid in enumerate(genome):
             if sid < 0:
@@ -1987,5 +1990,7 @@ class FitnessEvaluator:
             n = len(layers)
             if n > 2:
                 imp = self.importance_arr[sid]
-                penalty += (n - 2) * (1.0 + imp * 0.3)
+                extra = n - 2
+                waste_factor = max(1.0, 10.0 - imp)
+                penalty += extra * extra * waste_factor
         return penalty

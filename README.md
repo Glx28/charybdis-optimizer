@@ -2,6 +2,8 @@
 
 13-module Node.js analysis pipeline + Python DEAP/pyribs evolutionary optimizer for the Charybdis split keyboard layout. Evolves shortcut placement across 11 layers using a 12-factor fitness function.
 
+Part of the [Charybdis Keyboard System](https://github.com/Glx28/charybdis-tools#readme) — see the parent README for full setup and how data flows between repos.
+
 ## Quick Start
 
 ```powershell
@@ -68,13 +70,16 @@ sync_repos.ps1                 # One-command sync of layout data across all 4 re
 1. Run evolution: `python evolve/run_evolution.py build`
 2. Generate scripts: `cd evolve && python export_zmk.py ../build`
 3. Connect keyboard via USB, open [zmk.studio](https://zmk.studio/)
-4. Paste `build/evolved_apply.js` in console
-5. Paste `build/evolved_verify.js` to confirm
+4. Paste `build/evolved_apply.js` in console — applies all key changes across layers
+5. Paste `build/evolved_verify.js` to confirm every key was set correctly
 6. Save in ZMK Studio
-7. Sync all repos:
+7. Export new layout data from Studio (exporter script + CSV)
+8. Sync all repos:
    ```powershell
    powershell -ExecutionPolicy Bypass -File sync_repos.ps1 -CommitMessage "feat: apply evolved layout" -Push
    ```
+
+The apply script handles Key Press, Mouse Key Press, Bluetooth (with profile numbers), layer behaviors, and coach macros. Output Selection keys (USB/BLE output) are firmware-only and skipped. The verify script reads back every key's behavior, parameter, and modifiers — including from parameter selects (not just comboboxes) — and compares against expected values.
 
 ## Fitness Function
 

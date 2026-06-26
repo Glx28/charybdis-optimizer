@@ -757,6 +757,36 @@ def main():
     if chain_count:
         print(f"Added {chain_count} chain-derived conjunction boosts")
 
+    # Chain similarity: if chain A is a sub-sequence of chain B (shared suffix,
+    # prefix, or contained), boost the overlapping shortcuts' conjunction weights.
+    # e.g. [Ctrl+P, Ctrl+E] inside [Ctrl+G, Ctrl+P, Ctrl+E] → shared pair boosted.
+    chain_list = []
+    for chain_key, chain_data in usage_chains.items():
+        parts = chain_key.split(" -> ")
+        count = chain_data.get("count", 0)
+        if count >= 2 and len(parts) >= 2:
+            chain_list.append((parts, count))
+    sim_boost_count = 0
+    for i in range(len(chain_list)):
+        for j in range(i + 1, len(chain_list)):
+            a_parts, a_count = chain_list[i]
+            b_parts, b_count = chain_list[j]
+            shorter, longer = (a_parts, b_parts) if len(a_parts) <= len(b_parts) else (b_parts, a_parts)
+            # Check if shorter is a contiguous subsequence of longer
+            s_str = " -> ".join(shorter)
+            l_str = " -> ".join(longer)
+            if s_str not in l_str:
+                continue
+            # Found overlap — boost all pairwise within the shared segment
+            combined_count = min(a_count, b_count)
+            for si in range(len(shorter)):
+                for sj in range(si + 1, len(shorter)):
+                    pair_key = "|".join(sorted([shorter[si], shorter[sj]]))
+                    conjunction_pairs[pair_key] = conjunction_pairs.get(pair_key, 0) + combined_count * 0.4
+                    sim_boost_count += 1
+    if sim_boost_count:
+        print(f"Added {sim_boost_count} chain-similarity conjunction boosts")
+
     # Merge workflows: all pairwise combinations weighted by proximity in sequence
     usage_workflows = usage_stats.get("workflows", {})
     wf_count = 0

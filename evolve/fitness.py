@@ -308,12 +308,15 @@ class FitnessEvaluator:
     def _build_app_coherence_data(self):
         """Precompute per-shortcut app sets for the app-coherence reward.
         Shortcuts sharing an app on the same layer get a bonus, naturally
-        creating layer themes without hardcoded LAYER_APP_CONTEXT."""
+        creating layer themes without a hardcoded layer-app context table."""
         self.shortcut_app_sets = {}
+        self.shortcut_primary_app = {}
         for s in self.pool:
             if s.category == "base_key":
                 continue
-            self.shortcut_app_sets[s.sid] = set(s.apps) if s.apps else {s.app}
+            apps = set(s.apps) if s.apps else {s.app}
+            self.shortcut_app_sets[s.sid] = apps
+            self.shortcut_primary_app[s.sid] = s.app if s.app in apps else sorted(apps)[0]
 
     def _build_mouse_accessibility_data(self):
         """Precompute mouse button SIDs and ideal L2 left-hand positions for
@@ -612,13 +615,13 @@ class FitnessEvaluator:
         self.t_dist_matrix = torch.tensor(self.dist_matrix, device=d)
         self.t_zmk_incompat = torch.tensor(self.zmk_incompat_arr, device=d)
 
-        # App coherence GPU data: primary app ID per shortcut
-        unique_apps = sorted(set(app for apps in self.shortcut_app_sets.values() for app in apps))
+        # App coherence GPU data: stable primary app ID per shortcut
+        unique_apps = sorted(set(self.shortcut_primary_app.values()))
         app_to_id = {app: i for i, app in enumerate(unique_apps)}
         self._n_unique_apps = len(unique_apps)
         primary_app_arr = np.full(S + 1, -1, dtype=np.int64)
-        for sid, apps in self.shortcut_app_sets.items():
-            primary_app_arr[sid] = app_to_id[next(iter(apps))]
+        for sid, app in self.shortcut_primary_app.items():
+            primary_app_arr[sid] = app_to_id[app]
         self.t_primary_app_id = torch.tensor(primary_app_arr, device=d, dtype=torch.long)
         self.t_thumb_filled_w = torch.tensor(self.thumb_filled_weight, device=d)
         self.t_thumb_empty_w = torch.tensor(self.thumb_empty_weight, device=d)
@@ -1172,6 +1175,36 @@ class FitnessEvaluator:
             waste_factor = (10.0 - self.t_importance[:S].unsqueeze(0)).clamp(min=1.0)  # (1, S)
             cross_dupe_viol = (excess.pow(2) * waste_factor).sum(dim=1)
 
+        # Layer redundancy: penalize pairs where the same app dominates both layers.
+        # Mixed layers are allowed; this targets "four VS Code layers" style collapse.
+        layer_redund_viol = torch.zeros(B, device=d)
+        app_ids_by_pos = self.t_primary_app_id[t_g]  # -1 for base/sentinel
+        profile_layers = [l for l in unique_layers if l not in (0, 7) and l in self.t_layer_masks]
+        if self._n_unique_apps > 0 and len(profile_layers) > 1:
+            dominant_apps = {}
+            dominant_ratios = {}
+            layer_totals = {}
+            for layer_id in profile_layers:
+                lmask = self.t_layer_masks[layer_id].unsqueeze(0) & assigned & (app_ids_by_pos >= 0)
+                total = lmask.sum(dim=1).float()
+                layer_totals[layer_id] = total
+                app_counts = torch.zeros(B, self._n_unique_apps, device=d)
+                safe_apps = app_ids_by_pos.clamp(min=0)
+                app_counts.scatter_add_(1, safe_apps, lmask.float())
+                top_counts, top_apps = app_counts.max(dim=1)
+                dominant_apps[layer_id] = top_apps
+                dominant_ratios[layer_id] = top_counts / total.clamp(min=1.0)
+
+            for idx, la in enumerate(profile_layers):
+                for lb in profile_layers[idx + 1:]:
+                    same_app = dominant_apps[la] == dominant_apps[lb]
+                    dominant = (dominant_ratios[la] > 0.7) & (dominant_ratios[lb] > 0.7)
+                    enough_content = (layer_totals[la] >= 4) & (layer_totals[lb] >= 4)
+                    excess = torch.minimum(dominant_ratios[la], dominant_ratios[lb]) - 0.7
+                    pair_strength = (excess.clamp(min=0) * 10.0).pow(2)
+                    pair_size = torch.minimum(layer_totals[la], layer_totals[lb]).clamp(max=12.0)
+                    layer_redund_viol += (same_app & dominant & enough_content).float() * pair_strength * pair_size
+
         dupe_weight = self.weights.get("duplicate", 10.0)
         group_split_weight = self.weights.get("group_split", 50.0)
         viol_total = \
@@ -1181,7 +1214,8 @@ class FitnessEvaluator:
                      missing_viol * self.weights.get("missing_important", 15.0) + \
                      group_split_viol * group_split_weight + \
                      redundancy_viol * self.weights.get("momentary_redundancy", 5.0) + \
-                     cross_dupe_viol * self.weights.get("cross_layer_duplicate", 8.0)
+                     cross_dupe_viol * self.weights.get("cross_layer_duplicate", 8.0) + \
+                     layer_redund_viol * self.weights.get("layer_redundancy", 12.0)
 
         # Toggled layer base requirement: penalize toggled layers without coach_base anywhere
         toggled_base_viol = torch.zeros(B, device=d)
@@ -1410,6 +1444,7 @@ class FitnessEvaluator:
         total += self._missing_important_penalty(genome) * self.weights.get("missing_important", 15.0)
         total += self._momentary_redundancy_penalty(genome) * self.weights.get("momentary_redundancy", 5.0)
         total += self._cross_layer_duplicate_penalty(genome) * self.weights.get("cross_layer_duplicate", 8.0)
+        total += self._layer_redundancy_penalty(genome) * self.weights.get("layer_redundancy", 12.0)
         total += self._toggled_base_violation(genome) * self.weights.get("violations", 10.0)
         total += self._l0_key_displacement_violation(genome) * self.weights.get("violations", 10.0)
         return total
@@ -1653,7 +1688,7 @@ class FitnessEvaluator:
             if sid < 0 or sid not in self.shortcut_app_sets:
                 continue
             layer = self.positions[i].layer
-            app = next(iter(self.shortcut_app_sets[sid]))
+            app = self.shortcut_primary_app[sid]
             key = (layer, app)
             if key not in layer_app_sids:
                 layer_app_sids[key] = []
@@ -1974,4 +2009,45 @@ class FitnessEvaluator:
                 extra = n - 2
                 waste_factor = max(1.0, 10.0 - imp)
                 penalty += extra * extra * waste_factor
+        return penalty
+
+    def _layer_redundancy_penalty(self, genome):
+        """Penalize multiple layers with the same dominant app identity.
+
+        Layer identity is dynamic and descriptive. This does not penalize a layer
+        for becoming Windows instead of Excel, or for being mixed. It only pushes
+        back when two populated layers both become >70% the same app.
+        """
+        layer_app_counts = {}
+        for i, sid in enumerate(genome):
+            if sid < 0 or sid not in self.shortcut_primary_app:
+                continue
+            layer = self.positions[i].layer
+            if layer in (0, 7):
+                continue
+            app = self.shortcut_primary_app[sid]
+            counts = layer_app_counts.setdefault(layer, {})
+            counts[app] = counts.get(app, 0) + 1
+
+        profiles = {}
+        for layer, counts in layer_app_counts.items():
+            total = sum(counts.values())
+            if total < 4:
+                continue
+            app, count = max(counts.items(), key=lambda item: item[1])
+            ratio = count / total
+            if ratio > 0.7:
+                profiles[layer] = (app, ratio, total)
+
+        penalty = 0.0
+        layers = sorted(profiles)
+        for idx, la in enumerate(layers):
+            app_a, ratio_a, total_a = profiles[la]
+            for lb in layers[idx + 1:]:
+                app_b, ratio_b, total_b = profiles[lb]
+                if app_a != app_b:
+                    continue
+                excess = min(ratio_a, ratio_b) - 0.7
+                pair_size = min(total_a, total_b, 12)
+                penalty += (excess * 10.0) ** 2 * pair_size
         return penalty

@@ -9,30 +9,15 @@ import json
 import sys
 import os
 import csv
-import io
+from collections import Counter
 
 sys.path.insert(0, os.path.dirname(__file__))
 from representation import (
     build_position_index, build_shortcut_pool, encode_current_layout,
-    decode_genome, LAYER_NAMES,
 )
 from export_zmk import export_genome_to_zmk, KEY_TO_ZMK_PARAM
 from layer_access import LayerAccessAnalyzer
 
-
-LAYER_ROLES = {
-    0: "Base typing and thumb access",
-    1: "Navigation, function keys, programming/editing helpers",
-    2: "Mouse lock and button layer",
-    3: "Window, app, language, mouse/game/travel control",
-    4: "Bluetooth, output, Studio/system, F13-F24 macro layer",
-    5: "Code/IDE layer (VS Code shortcuts)",
-    6: "Reserved transparent layer",
-    7: "RPG/Game layer",
-    8: "Pointer travel overlay",
-    9: "M-Files/DMS document management",
-    10: "Excel spreadsheet layer",
-}
 
 # Reverse map: ZMK Studio parameter -> short CSV parameter
 ZMK_TO_CSV_PARAM = {}
@@ -66,6 +51,48 @@ def make_usage(label, behavior, param, mods):
         mod_str = "+".join(mods) + "+" if mods else ""
         return f"Sends {mod_str}{param}."
     return ""
+
+
+def derive_layer_roles(genome, positions, pool):
+    """Describe layers from evolved contents, not historical semantic names."""
+    by_layer = {}
+    for i, sid in enumerate(genome):
+        if sid < 0 or sid >= len(pool):
+            continue
+        by_layer.setdefault(positions[i].layer, []).append(pool[sid])
+
+    roles = {}
+    for layer in sorted({p.layer for p in positions}):
+        if layer == 0:
+            roles[layer] = "Base typing and thumb access"
+            continue
+        if layer == 7:
+            roles[layer] = "Game layer"
+            continue
+
+        shortcuts = [s for s in by_layer.get(layer, []) if s.category != "base_key"]
+        if shortcuts:
+            apps = Counter(s.app for s in shortcuts)
+            top = apps.most_common(2)
+            total = sum(apps.values())
+            if top[0][1] >= total * 0.5:
+                roles[layer] = f"Dynamic {top[0][0].title()} layer"
+            elif len(top) > 1:
+                roles[layer] = f"Dynamic mixed {top[0][0].title()}/{top[1][0].title()} layer"
+            else:
+                roles[layer] = "Dynamic mixed shortcut layer"
+            continue
+
+        base_keys = by_layer.get(layer, [])
+        if any("select:mb" in s.keys for s in base_keys):
+            roles[layer] = "Dynamic mouse/control layer"
+        elif any("coach_" in s.keys for s in base_keys):
+            roles[layer] = "Dynamic layer access/control layer"
+        elif base_keys:
+            roles[layer] = "Dynamic utility layer"
+        else:
+            roles[layer] = "Dynamic available layer"
+    return roles
 
 
 def main():
@@ -107,6 +134,7 @@ def main():
     genome = solution["genome"]
     sol_id = solution.get("id", f"sol_{sol_idx or 0}")
     changes = export_genome_to_zmk(genome, positions, pool, canonical, sol_id)
+    layer_roles = derive_layer_roles(genome, positions, pool)
 
     # Build changed coords lookup
     changed = {}
@@ -147,7 +175,7 @@ def main():
 
                     rows.append({
                         "layer": str(layer),
-                        "layer_role": LAYER_ROLES.get(layer, row.get("layer_role", "")),
+                        "layer_role": layer_roles.get(layer, row.get("layer_role", "")),
                         "x": str(x),
                         "y": str(y),
                         "visual_label": label,
@@ -158,6 +186,7 @@ def main():
                         "usage_notes": make_usage(label, behavior, param, c.get("modifiers", [])),
                     })
                 else:
+                    row["layer_role"] = layer_roles.get(layer, row.get("layer_role", ""))
                     rows.append(row)
 
         # Add any remaining changed coords not in original CSV
@@ -169,7 +198,7 @@ def main():
             label = c.get("label", param[:10] if param else behavior[:10])
             rows.append({
                 "layer": str(layer),
-                "layer_role": LAYER_ROLES.get(layer, ""),
+                "layer_role": layer_roles.get(layer, ""),
                 "x": str(x),
                 "y": str(y),
                 "visual_label": label,

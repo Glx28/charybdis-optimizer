@@ -104,6 +104,45 @@ class PenaltyFunctionTest(unittest.TestCase):
         pen_worse = self.evaluator._cross_layer_duplicate_penalty(np.array(genome, dtype=np.int32))
         self.assertGreater(pen_worse, pen_base)
 
+    def test_layer_redundancy_penalizes_same_dominant_app_only(self):
+        app_sids = {}
+        for s in self.pool:
+            if s.category != "base_key":
+                app_sids.setdefault(s.app, []).append(s.sid)
+        usable_apps = [app for app, sids in app_sids.items() if len(sids) >= 4]
+        if len(usable_apps) < 2:
+            self.skipTest("Need two apps with enough shortcuts")
+
+        layer_ids = [
+            layer for layer in sorted({p.layer for p in self.positions})
+            if layer not in (0, 7) and sum(1 for p in self.positions if p.layer == layer) >= 8
+        ]
+        if len(layer_ids) < 2:
+            self.skipTest("Need two non-base layers with enough positions")
+
+        layer_a, layer_b = layer_ids[:2]
+        pos_a = [i for i, p in enumerate(self.positions) if p.layer == layer_a][:8]
+        pos_b = [i for i, p in enumerate(self.positions) if p.layer == layer_b][:8]
+        app_a, app_b = usable_apps[:2]
+
+        redundant = [-1] * len(self.current)
+        for offset, idx in enumerate(pos_a):
+            redundant[idx] = app_sids[app_a][offset % len(app_sids[app_a])]
+        for offset, idx in enumerate(pos_b):
+            redundant[idx] = app_sids[app_a][offset % len(app_sids[app_a])]
+
+        mixed = [-1] * len(self.current)
+        mixed_sids = app_sids[app_a][:4] + app_sids[app_b][:4]
+        for offset, idx in enumerate(pos_a):
+            mixed[idx] = mixed_sids[offset]
+        for offset, idx in enumerate(pos_b):
+            mixed[idx] = mixed_sids[offset]
+
+        redundant_pen = self.evaluator._layer_redundancy_penalty(np.array(redundant, dtype=np.int32))
+        mixed_pen = self.evaluator._layer_redundancy_penalty(np.array(mixed, dtype=np.int32))
+        self.assertGreater(redundant_pen, 0.0)
+        self.assertEqual(mixed_pen, 0.0)
+
     def test_missing_important_penalty_nonzero(self):
         pen = self.evaluator._missing_important_penalty(np.array(self.current, dtype=np.int32))
         self.assertIsInstance(pen, float)

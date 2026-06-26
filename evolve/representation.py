@@ -16,10 +16,11 @@ FINGER_MAP = {
     7: "index_stretch", 8: "index", 9: "middle", 10: "ring", 11: "pinky", 12: "far_pinky",
 }
 
-LAYER_NAMES = {
-    0: "Base", 1: "Nav", 2: "Mouse", 3: "Window", 4: "System",
-    5: "Code", 6: "Scroll", 7: "Game", 8: "Speed", 9: "M-Files", 10: "Excel",
+LAYER_NAMES_DEFAULT = {
+    0: "Base", 1: "L1", 2: "L2", 3: "L3", 4: "L4",
+    5: "L5", 6: "L6", 7: "Game", 8: "L8", 9: "L9", 10: "L10",
 }
+LAYER_NAMES = LAYER_NAMES_DEFAULT
 
 LAYER_ACCESS = {
     1: {"thumb": "left", "key_x": 3, "key_y": 4, "method": "momentary"},
@@ -32,16 +33,6 @@ LAYER_ACCESS = {
     8: {"thumb": None, "method": "toggled"},
     9: {"thumb": None, "method": "toggled"},
     10: {"thumb": None, "method": "toggled"},
-}
-
-LAYER_APP_CONTEXT = {
-    1: ["windows", "browser", "explorer", "terminal"],
-    2: ["windows", "browser"],
-    3: ["windows", "explorer"],
-    4: ["windows", "teams", "browser", "vscode", "outlook", "terminal"],
-    5: ["vscode", "terminal"],
-    9: ["mfiles", "mfiles_admin"],
-    10: ["excel", "powerpoint", "word"],
 }
 
 UNIVERSAL_SHORTCUTS = {"Enter", "Tab", "Escape", "Delete", "Backspace"}

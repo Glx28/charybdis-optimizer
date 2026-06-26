@@ -19,15 +19,41 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from representation import (
     build_shortcut_pool, build_position_index, encode_current_layout,
-    build_layer_to_positions,
+    build_layer_to_positions, LAYER_ACCESS,
 )
 from fitness import FitnessEvaluator
 from layer_access import LayerAccessAnalyzer
 
-LAYER_NAMES = {
-    0: "Base", 1: "Nav", 2: "Mouse", 3: "Window", 4: "System",
-    5: "Code", 6: "Scroll", 7: "RPG", 8: "Speed", 9: "M-Files", 10: "Excel",
-}
+def derive_layer_name(layer, shortcuts, pool):
+    """Name a layer based on what's actually on it — dominant app or category."""
+    if layer == 0:
+        return "Base"
+    if layer == 7:
+        return "Game"
+    app_shortcuts = [s for s in shortcuts if s.category != "base_key"]
+    if not app_shortcuts:
+        base_types = Counter()
+        for s in shortcuts:
+            if "coach_" in s.keys:
+                base_types["access"] += 1
+            elif "arrow" in s.keys or "page" in s.keys or "home" in s.keys or "end" in s.keys:
+                base_types["nav"] += 1
+            elif s.keys.startswith("_base_f"):
+                base_types["fkeys"] += 1
+            elif "select:mb" in s.keys:
+                base_types["mouse"] += 1
+            else:
+                base_types["base"] += 1
+        if base_types:
+            return base_types.most_common(1)[0][0].title()
+        return f"L{layer}"
+    apps = Counter(s.app for s in app_shortcuts)
+    top_app, top_count = apps.most_common(1)[0]
+    total = len(app_shortcuts)
+    if top_count >= total * 0.5:
+        return top_app.title()
+    top2 = apps.most_common(2)
+    return f"{top2[0][0]}/{top2[1][0]}".title() if len(top2) > 1 else top_app.title()
 
 
 def load_data(build_dir):
@@ -88,11 +114,18 @@ def analyze(genome, positions, pool, current, canonical, config):
             w(f"  !! {err}")
     w("")
 
+    # Derive dynamic layer names from content
+    layer_names = {}
+    for layer in sorted(set(p.layer for p in positions)):
+        items = layer_shortcuts.get(layer, [])
+        shortcuts_only = [s for _, s in items]
+        layer_names[layer] = derive_layer_name(layer, shortcuts_only, pool)
+
     for layer in sorted(set(p.layer for p in positions)):
         if layer == 7:
             continue
         items = layer_shortcuts.get(layer, [])
-        lname = LAYER_NAMES.get(layer, f"L{layer}")
+        lname = layer_names.get(layer, f"L{layer}")
         depth = depths.get(layer, "?")
         cost = validation.access_costs.get(layer, "?")
 
@@ -127,7 +160,7 @@ def analyze(genome, positions, pool, current, canonical, config):
             if "coach_base" in s.keys or "coach_recover" in s.keys or "coach_travel_off" in s.keys:
                 has_exit = True
 
-        w(f"L{layer} ({lname}) — {len(items)} keys, depth={depth}, cost={cost}")
+        w(f"L{layer} [{lname}] — {len(items)} keys, depth={depth}, cost={cost}")
         w(f"  Apps: {app_str}")
         w(f"  Changes: {changed} ({added} added, {removed} removed)")
         if access_keys:
@@ -165,18 +198,58 @@ def analyze(genome, positions, pool, current, canonical, config):
             w(f"  {pool[sid].keys:<30} on {len(layers)} layers: {sorted(layers)}")
         w("")
 
+    # Layer redundancy: detect layers with the same dominant app profile.
+    # Mixed layers are allowed; this flags "four VS Code layers" style collapse.
+    layer_app_profiles = {}
+    for layer in sorted(set(p.layer for p in positions)):
+        if layer in (0, 7):
+            continue
+        items = layer_shortcuts.get(layer, [])
+        app_counts = Counter(s.app for _, s in items if s.category != "base_key")
+        if app_counts:
+            layer_app_profiles[layer] = app_counts
+
+    redundant_pairs = []
+    layers_checked = sorted(layer_app_profiles.keys())
+    for i, la in enumerate(layers_checked):
+        for lb in layers_checked[i+1:]:
+            pa, pb = layer_app_profiles[la], layer_app_profiles[lb]
+            total_a, total_b = sum(pa.values()), sum(pb.values())
+            app_a, count_a = pa.most_common(1)[0]
+            app_b, count_b = pb.most_common(1)[0]
+            overlap_a = count_a / max(total_a, 1)
+            overlap_b = count_b / max(total_b, 1)
+            if app_a != app_b:
+                continue
+            if overlap_a > 0.7 and overlap_b > 0.7:
+                redundant_pairs.append((la, lb, app_a, overlap_a, overlap_b))
+
+    if redundant_pairs:
+        w("Layer redundancy (same dominant app >70% on both layers):")
+        for la, lb, app, oa, ob in redundant_pairs:
+            w(f"  L{la} [{layer_names.get(la)}] and L{lb} [{layer_names.get(lb)}]: "
+              f"{app} dominates both ({oa:.0%} / {ob:.0%})")
+        w("")
+
     # Risk summary
     risks = []
     if not validation.valid:
         risks.append("LAYER ACCESS INVALID — cannot apply this layout")
-    for layer in (5, 8, 9, 10):
+    for layer in sorted(set(p.layer for p in positions)):
+        if layer in (0, 7):
+            continue
+        access_info = LAYER_ACCESS.get(layer, {})
+        if access_info.get("method") not in ("toggled", "locked"):
+            continue
         keys_on_layer = [s.keys for _, s in layer_shortcuts.get(layer, [])]
         if not any("coach_base" in k or "coach_recover" in k or "coach_travel_off" in k for k in keys_on_layer):
-            risks.append(f"L{layer} ({LAYER_NAMES.get(layer)}) has no exit key")
+            risks.append(f"L{layer} [{layer_names.get(layer)}] has no exit key")
     if len(dups) > 15:
         risks.append(f"{len(dups)} cross-layer duplicates (>15 is excessive)")
     if len(missing) > 20:
         risks.append(f"{len(missing)} high-importance shortcuts unplaced")
+    if redundant_pairs:
+        risks.append(f"{len(redundant_pairs)} redundant layer pair(s) — consider merging")
 
     if risks:
         w("RISKS:")

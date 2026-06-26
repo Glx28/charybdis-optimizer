@@ -29,6 +29,7 @@
     "missing_important": 80.0,
     "duplicate": 50.0,
     "cross_layer_duplicate": 25.0,
+    "layer_redundancy": 15.0,
     "group_split": 30.0,
     "momentary_redundancy": 8.0,
     "mouse_layer_bonus": 5.0,

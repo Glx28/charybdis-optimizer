@@ -210,7 +210,7 @@ def main():
             })
     else:
         print(f"WARNING: Current CSV not found at {csv_path}")
-        print("Generating from scratch using canonical.json + evolved changes")
+        print("Generating from scratch using canonical.json + evolved keys")
         sys.exit(1)
 
     # Write output
@@ -222,7 +222,7 @@ def main():
             writer.writerow({h: row.get(h, "") for h in headers})
 
     print(f"Exported {len(rows)} rows to {out_path}")
-    print(f"  Changed: {len(changes)} keys")
+    print(f"  Exported: {len(changes)} keys")
     print(f"  Copy to: charybdis-zmk-config/layout/keybindings_explained.csv")
 
 

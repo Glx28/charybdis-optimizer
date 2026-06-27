@@ -39,14 +39,15 @@ eval_cpu = FitnessEvaluator(positions, pool, config, conjunction_pairs=pairs, de
 
 genome = encode_current_layout(canonical, positions, pool)
 layer_positions = build_layer_to_positions(positions)
-from operators import swap_within_layer
+from operators import swap_within_layer, OperatorContext
+ctx = OperatorContext(positions, pool, layer_positions)
 
 # Generate test population
 genomes = []
 for _ in range(5000):
     g = copy.copy(genome)
     for _ in range(random.randint(5,20)):
-        g = swap_within_layer(g, positions, layer_positions)
+        g = swap_within_layer(g, ctx)
     genomes.append(g)
 
 # CPU single-threaded

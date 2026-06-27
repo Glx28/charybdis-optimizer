@@ -281,6 +281,15 @@ def _base_key_to_binding(shortcut):
 
 
 def _validate_layer_access_or_raise(genome, positions, pool, canonical):
+    invalid_sids = [sid for sid in genome if sid < -1 or sid >= len(pool)]
+    if invalid_sids:
+        print("\n" + "=" * 60)
+        print("GENOME SID VALIDATION FAILED")
+        print("=" * 60)
+        print(f"  - {len(invalid_sids)} invalid/stale SID placement(s)")
+        print("Refusing to export an apply script from a stale shortcut pool.")
+        print("=" * 60 + "\n")
+        raise ValueError("invalid/stale shortcut SID")
     analyzer = LayerAccessAnalyzer(canonical, positions, pool)
     validation = analyzer.validate(genome)
     if not validation.valid:
@@ -302,12 +311,11 @@ def export_genome_to_zmk(genome, positions, pool, canonical, solution_id="evolve
     """
     _validate_layer_access_or_raise(genome, positions, pool, canonical)
     current = encode_current_layout(canonical, positions, pool)
-    changes = []
+    layout = []
 
     for i, (new_sid, old_sid) in enumerate(zip(genome, current)):
-        if new_sid == old_sid:
-            continue
         pos = positions[i]
+        changed = new_sid != old_sid
         if new_sid < 0:
             binding = {
                 "behavior": "Transparent",
@@ -315,7 +323,7 @@ def export_genome_to_zmk(genome, positions, pool, canonical, solution_id="evolve
                 "modifiers": [],
                 "label": "",
             }
-            rationale = f"Cleared by optimizer ({solution_id})"
+            rationale = f"Cleared by optimizer ({solution_id})" if changed else f"Optimizer ({solution_id}): unchanged transparent"
         else:
             shortcut = pool[new_sid]
             binding = shortcut_to_zmk_binding(shortcut)
@@ -323,7 +331,7 @@ def export_genome_to_zmk(genome, positions, pool, canonical, solution_id="evolve
                 continue
             rationale = f"Optimizer ({solution_id}): {shortcut.keys} ({shortcut.action})"
 
-        changes.append({
+        layout.append({
             "layer": pos.layer,
             "x": pos.x,
             "y": pos.y,
@@ -332,10 +340,10 @@ def export_genome_to_zmk(genome, positions, pool, canonical, solution_id="evolve
             "modifiers": binding["modifiers"],
             "label": binding["label"],
             "rationale": rationale,
-            "optimizer_changed": True,
+            "optimizer_changed": changed,
         })
 
-    return changes
+    return layout
 
 
 def generate_apply_script(changes, version="evolved"):
@@ -485,7 +493,7 @@ setTimeout(function() {
 
     return f"""/*
 Charybdis optimizer layout — {version}
-{len(changes)} key changes across layers {layers}.
+{len(changes)} keys across layers {layers}.
 Self-contained: paste this one file in ZMK Studio console to apply all changes.
 */
 
@@ -566,7 +574,7 @@ def main():
     print(f"  Changes: {solution.get('changes_from_current', '?')}")
 
     changes = export_genome_to_zmk(genome, positions, pool, canonical, sol_id)
-    print(f"\n  ZMK Studio changes: {len(changes)} keys")
+    print(f"\n  ZMK Studio keys: {len(changes)}")
 
     script = generate_apply_script(changes, version=f"evolved-{sol_id}")
     out_path = os.path.join(build_dir, "evolved_apply.js")
@@ -582,7 +590,7 @@ def main():
         by_layer.setdefault(c["layer"], []).append(c)
     for layer in sorted(by_layer):
         lname = LAYER_NAMES.get(layer, f"Layer {layer}")
-        diff_lines.append(f"## Layer {layer} ({lname}) — {len(by_layer[layer])} changes\n")
+        diff_lines.append(f"## Layer {layer} ({lname}) — {len(by_layer[layer])} keys\n")
         for c in sorted(by_layer[layer], key=lambda c: (c["y"], c["x"])):
             mod_str = "+".join(c.get("modifiers", [])) + "+" if c.get("modifiers") else ""
             diff_lines.append(f"  ({c['x']},{c['y']}) → {c['behavior']} {mod_str}{c['parameter']}  [{c.get('rationale', '')}]\n")

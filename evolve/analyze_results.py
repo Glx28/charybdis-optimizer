@@ -22,7 +22,7 @@ from representation import (
     build_layer_to_positions, LAYER_ACCESS,
 )
 from fitness import FitnessEvaluator
-from layer_access import LayerAccessAnalyzer
+from layer_access import LayerAccessAnalyzer, shortcut_capability
 
 def derive_layer_name(layer, shortcuts, pool):
     """Name a layer based on what's actually on it — dominant app or category."""
@@ -56,7 +56,7 @@ def derive_layer_name(layer, shortcuts, pool):
     return f"{top2[0][0]}/{top2[1][0]}".title() if len(top2) > 1 else top_app.title()
 
 
-def load_data(build_dir):
+def load_data(build_dir, scratch=False):
     main_build = Path(__file__).resolve().parents[1] / "build"
     def find(name):
         for d in [Path(build_dir), main_build]:
@@ -66,7 +66,7 @@ def load_data(build_dir):
         raise FileNotFoundError(f"{name} not found in {build_dir} or {main_build}")
     canonical = json.loads(find("canonical.json").read_text(encoding="utf-8"))
     scores = json.loads(find("app_shortcut_scores.json").read_text(encoding="utf-8"))
-    config_path = Path(__file__).parent / "config.json"
+    config_path = Path(__file__).parent / ("config_scratch.json" if scratch else "config.json")
     config = json.loads(config_path.read_text(encoding="utf-8"))
     positions = build_position_index(canonical, set(config.get("frozen_layers", [7])))
     pool = build_shortcut_pool(scores, canonical)
@@ -96,18 +96,35 @@ def analyze(genome, positions, pool, current, canonical, config):
     analyzer = LayerAccessAnalyzer(canonical, positions, pool)
     validation = analyzer.validate(genome)
     depths = analyzer.access_depth(genome)
+    capabilities = analyzer.capabilities_for_genome(genome)
+    exit_layers = {cap.source for cap in capabilities if cap.target == 0}
+    toggle_return_layers = {
+        cap.target for cap in capabilities
+        if cap.mode == "toggle" and cap.target in analyzer.exit_required_layers
+    }
+    probe_pos = positions[0] if positions else None
+    capability_sids = {
+        s.sid for s in pool
+        if probe_pos is not None and shortcut_capability(s, probe_pos)
+    }
 
     lines = []
     w = lines.append
 
     # Per-layer summary
     layer_shortcuts = defaultdict(list)
+    invalid_sid_count = 0
     for i, sid in enumerate(genome):
+        if sid < -1 or sid >= len(pool):
+            invalid_sid_count += 1
+            continue
         if sid >= 0:
             layer_shortcuts[positions[i].layer].append((positions[i], pool[sid]))
 
     assigned = sum(1 for g in genome if g >= 0)
     w(f"Assigned: {assigned}/{N} positions ({assigned*100//N}%)")
+    if invalid_sid_count:
+        w(f"Invalid/stale SIDs skipped in analysis: {invalid_sid_count}")
     w(f"Layer access: {'VALID' if validation.valid else 'INVALID'}")
     if validation.errors:
         for err in validation.errors:
@@ -153,7 +170,7 @@ def analyze(genome, positions, pool, current, canonical, config):
 
         # Access keys on this layer
         access_keys = []
-        has_exit = False
+        has_exit = layer in exit_layers
         for p, s in items:
             if "coach_" in s.keys or "toggle_layer" in s.keys or "momentary_layer" in s.keys or "to_layer" in s.keys:
                 access_keys.append(s.keys.replace("_base_", ""))
@@ -165,7 +182,7 @@ def analyze(genome, positions, pool, current, canonical, config):
         w(f"  Changes: {changed} ({added} added, {removed} removed)")
         if access_keys:
             w(f"  Access: {', '.join(access_keys)}")
-        if layer in (5, 8, 9, 10) and not has_exit:
+        if layer in analyzer.exit_required_layers and not (has_exit or layer in toggle_return_layers):
             w(f"  !! NO EXIT KEY — soft-lock risk")
 
         # Top shortcuts
@@ -177,7 +194,7 @@ def analyze(genome, positions, pool, current, canonical, config):
         w("")
 
     # Missing high-importance
-    assigned_sids = set(g for g in genome if g >= 0)
+    assigned_sids = set(g for g in genome if 0 <= g < len(pool))
     missing = [s for s in pool if s.sid not in assigned_sids and s.importance >= 5.0]
     missing.sort(key=lambda s: -s.importance)
     if missing:
@@ -189,7 +206,9 @@ def analyze(genome, positions, pool, current, canonical, config):
     # Cross-layer duplicates
     sid_layers = defaultdict(set)
     for i, sid in enumerate(genome):
-        if sid >= 0:
+        if sid < -1 or sid >= len(pool):
+            continue
+        if sid >= 0 and sid not in capability_sids:
             sid_layers[sid].add(positions[i].layer)
     dups = [(sid, layers) for sid, layers in sid_layers.items() if len(layers) > 2]
     if dups:
@@ -233,16 +252,18 @@ def analyze(genome, positions, pool, current, canonical, config):
 
     # Risk summary
     risks = []
+    if invalid_sid_count:
+        risks.append(f"{invalid_sid_count} invalid/stale SID placement(s)")
     if not validation.valid:
         risks.append("LAYER ACCESS INVALID — cannot apply this layout")
     for layer in sorted(set(p.layer for p in positions)):
         if layer in (0, 7):
             continue
-        access_info = LAYER_ACCESS.get(layer, {})
-        if access_info.get("method") not in ("toggled", "locked"):
+        if layer not in analyzer.exit_required_layers:
             continue
         keys_on_layer = [s.keys for _, s in layer_shortcuts.get(layer, [])]
-        if not any("coach_base" in k or "coach_recover" in k or "coach_travel_off" in k for k in keys_on_layer):
+        has_mutable_exit = any("coach_base" in k or "coach_recover" in k or "coach_travel_off" in k for k in keys_on_layer)
+        if layer not in exit_layers and layer not in toggle_return_layers and not has_mutable_exit:
             risks.append(f"L{layer} [{layer_names.get(layer)}] has no exit key")
     if len(dups) > 15:
         risks.append(f"{len(dups)} cross-layer duplicates (>15 is excessive)")
@@ -270,7 +291,7 @@ def main():
     do_export = "--export" in sys.argv
     scratch = "--scratch" in sys.argv
 
-    canonical, positions, pool, current, config = load_data(build_dir)
+    canonical, positions, pool, current, config = load_data(build_dir, scratch=scratch)
     genome, gen, fitness, source_file = load_best_genome(build_dir, scratch)
 
     if genome is None:
@@ -294,12 +315,12 @@ def main():
         print("=" * 60)
         try:
             from export_zmk import export_genome_to_zmk, generate_apply_script
-            changes = export_genome_to_zmk(genome, positions, pool, canonical)
-            script = generate_apply_script(changes, build_dir)
+            keys = export_genome_to_zmk(genome, positions, pool, canonical)
+            script = generate_apply_script(keys, build_dir)
             apply_path = os.path.join(build_dir, "evolved_apply.js")
             with open(apply_path, "w", encoding="utf-8") as f:
                 f.write(script)
-            print(f"  Apply script: {apply_path} ({len(changes)} changes)")
+            print(f"  Apply script: {apply_path} ({len(keys)} keys)")
         except Exception as e:
             print(f"  Export failed: {e}")
 

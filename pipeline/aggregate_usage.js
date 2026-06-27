@@ -56,7 +56,10 @@ function run(config) {
   const byApp = {};
   const byLayer = {};
   const mouseClicks = {};
+  const mouseByLayer = {};
   const scrollEvents = {};
+  const scrollByLayer = {};
+  let scrollTotal = 0;
   const layerSessions = {};
   const holdHeavy = {};
   const modifierTaps = {};
@@ -80,24 +83,30 @@ function run(config) {
 
     if (eventType === "mouse") {
       const btn = entry.button || "MB1";
+      const cnt = entry.count || 1;
       if (!mouseClicks[btn]) mouseClicks[btn] = { count: 0, apps: {}, with_modifier: {} };
-      mouseClicks[btn].count += entry.count || 1;
-      mouseClicks[btn].apps[app] = (mouseClicks[btn].apps[app] || 0) + (entry.count || 1);
+      mouseClicks[btn].count += cnt;
+      mouseClicks[btn].apps[app] = (mouseClicks[btn].apps[app] || 0) + cnt;
       if (entry.modifier) {
-        mouseClicks[btn].with_modifier[entry.modifier] = (mouseClicks[btn].with_modifier[entry.modifier] || 0) + (entry.count || 1);
+        mouseClicks[btn].with_modifier[entry.modifier] = (mouseClicks[btn].with_modifier[entry.modifier] || 0) + cnt;
       }
+      if (!mouseByLayer[btn]) mouseByLayer[btn] = {};
+      mouseByLayer[btn][layer] = (mouseByLayer[btn][layer] || 0) + cnt;
       if (!byApp[app]) byApp[app] = { total: 0, shortcuts: {}, mouse_clicks: 0, scroll_total: 0 };
-      byApp[app].mouse_clicks = (byApp[app].mouse_clicks || 0) + (entry.count || 1);
+      byApp[app].mouse_clicks = (byApp[app].mouse_clicks || 0) + cnt;
       continue;
     }
 
     if (eventType === "scroll") {
       const dir = entry.direction || "down";
+      const ticks = entry.ticks || 1;
       const exe = app.toLowerCase();
       if (!scrollEvents[exe]) scrollEvents[exe] = { up: 0, down: 0, left: 0, right: 0 };
-      scrollEvents[exe][dir] = (scrollEvents[exe][dir] || 0) + (entry.ticks || 1);
+      scrollEvents[exe][dir] = (scrollEvents[exe][dir] || 0) + ticks;
+      scrollTotal += ticks;
+      scrollByLayer[layer] = (scrollByLayer[layer] || 0) + ticks;
       if (!byApp[app]) byApp[app] = { total: 0, shortcuts: {}, mouse_clicks: 0, scroll_total: 0 };
-      byApp[app].scroll_total = (byApp[app].scroll_total || 0) + (entry.ticks || 1);
+      byApp[app].scroll_total = (byApp[app].scroll_total || 0) + ticks;
       continue;
     }
 
@@ -135,6 +144,7 @@ function run(config) {
       if (!shortcuts[tkeys]) shortcuts[tkeys] = { count: 0, apps: {}, by_layer: {} };
       shortcuts[tkeys].count += tcount;
       shortcuts[tkeys].apps[app] = (shortcuts[tkeys].apps[app] || 0) + tcount;
+      shortcuts[tkeys].by_layer[layer] = (shortcuts[tkeys].by_layer[layer] || 0) + tcount;
       if (!byApp[app]) byApp[app] = { total: 0, shortcuts: {}, mouse_clicks: 0, scroll_total: 0 };
       byApp[app].total += tcount;
       byApp[app].shortcuts[tkeys] = (byApp[app].shortcuts[tkeys] || 0) + tcount;
@@ -212,8 +222,15 @@ function run(config) {
   for (const [, ls] of Object.entries(layerSessions)) {
     ls.avg_duration_ms = Math.round(ls.total_duration_ms / Math.max(ls.count, 1));
     delete ls.total_duration_ms;
+    ls.avg_keys_per_session = Math.round((ls.total_keys / Math.max(ls.count, 1)) * 10) / 10;
     ls.common_keys = Object.entries(ls.key_freq).sort((a, b) => b[1] - a[1]).slice(0, 10).map(e => e[0]);
     delete ls.key_freq;
+  }
+
+  // Layer switch activations: how many times each layer was activated
+  const layerSwitchActivations = {};
+  for (const [layerNum, ls] of Object.entries(layerSessions)) {
+    layerSwitchActivations[layerNum] = ls.count;
   }
 
   // Finalize hold-heavy keys
@@ -296,8 +313,12 @@ function run(config) {
     app_time_seconds: appTime,
     blind_spots: blindSpots,
     mouse_clicks: mouseClicks,
+    mouse_by_layer: mouseByLayer,
     scroll_events: scrollEvents,
+    scroll_total: scrollTotal,
+    scroll_by_layer: scrollByLayer,
     layer_sessions: layerSessions,
+    layer_switch_activations: layerSwitchActivations,
     hold_heavy: holdHeavy,
     modifier_taps: modifierTaps,
   };

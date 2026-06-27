@@ -13,7 +13,7 @@ from representation import (
     encode_current_layout, discover_dynamic_groups,
 )
 from fitness import FitnessEvaluator
-from operators import custom_mutate, pmx_crossover
+from operators import custom_mutate, pmx_crossover, OperatorContext
 from run_evolution import load_build_data, load_config, build_conjunction_pairs_from_scores, seed_population, run_nsga2
 
 import torch
@@ -57,13 +57,23 @@ def main():
         device=device,
         current_genome=current,
     )
-    dynamic_groups = evaluator.dynamic_groups
+
+    ctx = OperatorContext(positions, pool, layer_positions, evaluator.dynamic_groups)
+    # Freeze L0 like the real run does
+    open_l0_keys = set(config.get("open_l0_keys", []))
+    open_indices = []
+    for i, p in enumerate(positions):
+        if p.layer == 0 and current[i] >= 0:
+            key_name = pool[current[i]].keys
+            if key_name in open_l0_keys:
+                open_indices.append(i)
+    ctx.set_frozen_l0(positions, open_indices)
 
     # --- Profile seeding ---
     print("=== SEEDING ===")
     pop, t_seed = timed("seed_population", seed_population,
                         current, config.get("pop_size", 2000), positions, pool,
-                        layer_positions, build_dir)
+                        layer_positions, build_dir, None, ctx)
 
     # --- Profile GPU batch eval ---
     print("\n=== GPU BATCH EVAL ===")
@@ -76,6 +86,13 @@ def main():
     for batch_size in [500, 1000, 2000, 5000]:
         batch = genomes[:batch_size]
         _, t = timed(f"batch eval {batch_size}", evaluator.evaluate_batch_gpu, batch)
+        print(f"    => {t/batch_size*1000:.2f}ms per individual, {batch_size/t:.0f} evals/sec")
+
+    # Test tensor passthrough path (prebuilt_np)
+    print("\n  --- Tensor passthrough (prebuilt_np) ---")
+    for batch_size in [2000, 5000]:
+        batch_np = np.array(genomes[:batch_size], dtype=np.int32)
+        _, t = timed(f"batch eval {batch_size} (prebuilt)", evaluator.evaluate_batch_gpu, None, prebuilt_np=batch_np)
         print(f"    => {t/batch_size*1000:.2f}ms per individual, {batch_size/t:.0f} evals/sec")
 
     # --- Profile single CPU eval ---
@@ -96,11 +113,11 @@ def main():
     # --- Profile operators ---
     print("\n=== OPERATORS ===")
     n_ops = 200
-    _, t_mut = timed(f"mutate x{n_ops}", lambda: [custom_mutate(copy.copy(genomes[i % len(genomes)]), positions, pool, layer_positions, dynamic_groups) for i in range(n_ops)])
+    _, t_mut = timed(f"mutate x{n_ops}", lambda: [custom_mutate(copy.copy(genomes[i % len(genomes)]), ctx) for i in range(n_ops)])
     print(f"    =>{t_mut/n_ops*1000:.2f}ms per mutation")
 
     pairs = [(genomes[i], genomes[i+1]) for i in range(0, min(n_ops*2, len(genomes)-1), 2)]
-    _, t_cx = timed(f"crossover x{len(pairs)}", lambda: [pmx_crossover(copy.copy(a), copy.copy(b), positions, layer_positions, pool, dynamic_groups) for a, b in pairs])
+    _, t_cx = timed(f"crossover x{len(pairs)}", lambda: [pmx_crossover(copy.copy(a), copy.copy(b), ctx) for a, b in pairs])
     print(f"    =>{t_cx/len(pairs)*1000:.2f}ms per crossover")
 
     # --- Profile NSGA-II selection ---
@@ -122,7 +139,6 @@ def main():
                      tools.selNSGA2, deap_pop, len(deap_pop)//2)
 
     # Test GPU-accelerated selection
-    # Rebuild fast_selNSGA2 inline since it's defined inside run_nsga2
     def fast_selNSGA2(individuals, k):
         fits_np = np.array([ind.fitness.values for ind in individuals], dtype=np.float32)
         n = len(individuals)
@@ -188,8 +204,7 @@ def main():
     # --- Summary ---
     print("\n=== ESTIMATED GENERATION TIME ===")
     pop_size = config.get("pop_size", 2000)
-    # One gen: mutate/crossover offspring + batch eval + selection
-    n_offspring = pop_size  # varAnd produces ~pop_size offspring
+    n_offspring = pop_size
     t_operators = (t_mut / n_ops) * n_offspring * 0.5 + (t_cx / len(pairs)) * n_offspring * 0.5
     _, t_eval_full = timed(f"batch eval {pop_size} (full pop)", evaluator.evaluate_batch_gpu, genomes[:pop_size])
     t_gen_est = t_operators + t_eval_full + (t_sel if t_sel else 0)

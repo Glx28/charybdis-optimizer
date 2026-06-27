@@ -9,12 +9,38 @@ import json
 import random
 import time
 import copy
+import hashlib
 from pathlib import Path
 from multiprocessing import cpu_count
 
 import numpy as np
 
-from deap import base, creator, tools, algorithms
+from deap import base, creator, tools
+
+
+def json_safe(obj):
+    """Recursively convert numpy/scalar containers into JSON-serializable values."""
+    if isinstance(obj, dict):
+        return {str(json_safe(k)): json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [json_safe(v) for v in obj]
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    return obj
+
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        safe = json_safe(obj)
+        if safe is not obj:
+            return safe
+        return super().default(obj)
 
 
 def _safe_replace(src, dst, retries=3):
@@ -29,17 +55,19 @@ def _safe_replace(src, dst, retries=3):
 
 from representation import (
     build_position_index, build_shortcut_pool, build_layer_to_positions,
-    encode_current_layout, decode_genome, build_scratch_genome,
+    encode_current_layout, decode_genome, build_scratch_genome, KEY_GROUPS,
 )
 from fitness import FitnessEvaluator
-from operators import custom_mutate, pmx_crossover, set_frozen_l0, set_frozen_l2_mouse
+from operators import custom_mutate, pmx_crossover, OperatorContext, GPU_OP_IDS
 
 HAS_TORCH = False
 try:
     import torch
     HAS_TORCH = True
 except ImportError:
+    torch = None
     pass
+CUDA_OOM_ERRORS = (torch.cuda.OutOfMemoryError,) if HAS_TORCH else ()
 
 QD_AVAILABLE = False
 try:
@@ -106,7 +134,30 @@ def build_conjunction_pairs_from_scores(scores):
     return pairs
 
 
-def load_previous_elites(build_dir, n_positions, n_shortcuts, access_analyzer=None):
+def pool_hash(shortcut_pool):
+    payload = []
+    for s in sorted(shortcut_pool, key=lambda x: x.sid):
+        payload.append({
+            "sid": int(s.sid),
+            "keys": s.keys,
+            "action": s.action,
+            "app": s.app,
+            "apps": sorted(s.apps or []),
+            "category": s.category,
+            "importance": float(s.importance),
+            "base_key": s.base_key,
+            "modifiers": list(s.modifiers or []),
+            "zmk_parameter": s.zmk_parameter,
+        })
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _sid_range_valid(genome, n_shortcuts):
+    return all(-1 <= int(sid) < n_shortcuts for sid in genome)
+
+
+def load_previous_elites(build_dir, n_positions, n_shortcuts, access_analyzer=None, expected_pool_hash=None):
     """Load genomes from previous evolution run if available.
     Checks both final results and interim results (from interrupted runs)."""
     elites = []
@@ -117,14 +168,18 @@ def load_previous_elites(build_dir, n_positions, n_shortcuts, access_analyzer=No
         try:
             with open(results_path, "r", encoding="utf-8") as f:
                 prev = json.load(f)
+            if prev.get("pool_size", prev.get("shortcuts_count", n_shortcuts)) != n_shortcuts:
+                continue
+            if expected_pool_hash and prev.get("pool_hash") and prev.get("pool_hash") != expected_pool_hash:
+                continue
             for sol in prev.get("pareto_front", []):
                 g = sol.get("genome")
-                if (g and len(g) == n_positions and all(sid < n_shortcuts for sid in g)
+                if (g and len(g) == n_positions and _sid_range_valid(g, n_shortcuts)
                     and (access_analyzer is None or access_analyzer.validate(g).valid)):
                     elites.append(list(g))
             for sol in prev.get("qd_solutions", []):
                 g = sol.get("genome")
-                if (g and len(g) == n_positions and all(sid < n_shortcuts for sid in g)
+                if (g and len(g) == n_positions and _sid_range_valid(g, n_shortcuts)
                     and (access_analyzer is None or access_analyzer.validate(g).valid)):
                     elites.append(list(g))
         except (json.JSONDecodeError, KeyError):
@@ -243,8 +298,250 @@ def preseed_unplaced_shortcuts(genome, positions, shortcut_pool, layer_positions
     return genome
 
 
+def _exit_required_layers(access_analyzer=None):
+    if access_analyzer is not None:
+        return set(access_analyzer.exit_required_layers)
+    from representation import LAYER_ACCESS
+    return {
+        layer for layer, info in LAYER_ACCESS.items()
+        if info.get("method") in ("toggled", "locked", "momentary_or_locked")
+    }
+
+
+_BASE_RETURN_SIDS_CACHE = {}
+
+
+def _base_return_sids(shortcut_pool, positions, exit_required_layers):
+    from layer_access import shortcut_capability
+    cache_key = (id(shortcut_pool), id(positions), tuple(sorted(exit_required_layers)))
+    if cache_key in _BASE_RETURN_SIDS_CACHE:
+        return _BASE_RETURN_SIDS_CACHE[cache_key]
+    by_layer = {}
+    capability_sids = set()
+    for layer in exit_required_layers:
+        probe = next((p for p in positions if p.layer == layer), None)
+        if probe is None:
+            continue
+        candidates = []
+        for s in shortcut_pool:
+            cap = shortcut_capability(s, probe)
+            if cap:
+                capability_sids.add(s.sid)
+            if cap and cap.source == layer and cap.target == 0:
+                priority = 0 if "coach_base" in s.keys else 1 if "recover_base" in s.keys else 2
+                candidates.append((priority, -float(s.importance), s.sid))
+        candidates.sort()
+        by_layer[layer] = [sid for _, _, sid in candidates]
+    _BASE_RETURN_SIDS_CACHE[cache_key] = (by_layer, capability_sids)
+    return _BASE_RETURN_SIDS_CACHE[cache_key]
+
+
+def ensure_structural_exits(genome, positions, shortcut_pool, layer_positions, access_analyzer=None,
+                            randomize=False, top_k=5):
+    """Repair missing exit keys on exit-required layers without pinning layouts."""
+    g = list(genome)
+    exit_required = _exit_required_layers(access_analyzer)
+    return_sids_by_layer, capability_sids = _base_return_sids(shortcut_pool, positions, exit_required)
+    changed = False
+
+    for layer in sorted(exit_required):
+        layer_pos = layer_positions.get(layer, [])
+        if not layer_pos:
+            continue
+        exit_sids = set(return_sids_by_layer.get(layer, []))
+        has_exit = any(
+            0 <= g[p.gene_idx] < len(shortcut_pool) and int(g[p.gene_idx]) in exit_sids
+            for p in layer_pos
+        )
+        if has_exit:
+            continue
+
+        candidates = list(return_sids_by_layer.get(layer, []))
+        if not candidates:
+            continue
+        candidate_pool = candidates[:max(1, int(top_k))]
+        sid_to_place = random.choice(candidate_pool) if randomize and candidate_pool else candidates[0]
+        empty_slots = sorted([p for p in layer_pos if g[p.gene_idx] < 0], key=lambda p: (p.effort, p.y, p.x))
+        target = None
+        if empty_slots:
+            target_pool = empty_slots[:max(1, int(top_k))]
+            target = random.choice(target_pool) if randomize else empty_slots[0]
+        if target is None:
+            replaceable = []
+            for p in layer_pos:
+                sid = g[p.gene_idx]
+                if sid < 0 or sid >= len(shortcut_pool):
+                    continue
+                if int(sid) in capability_sids:
+                    continue
+                replaceable.append((float(shortcut_pool[int(sid)].importance), -float(p.effort), p))
+            if replaceable:
+                replaceable.sort(key=lambda item: (item[0], item[1], item[2].layer, item[2].y, item[2].x))
+                target_pool = replaceable[:max(1, int(top_k))]
+                target = random.choice(target_pool)[2] if randomize else replaceable[0][2]
+        if target is not None:
+            g[target.gene_idx] = sid_to_place
+            changed = True
+
+    return g, changed
+
+
+def population_diagnostics(population, positions, shortcut_pool, evaluator):
+    genomes = [list(ind) for ind in population]
+    n = len(genomes)
+    invalid_sid_rows = 0
+    stale_sid_count = 0
+    max_sid = -1
+    structural_valid = 0
+    exit_required = sorted(_exit_required_layers(evaluator.access_analyzer if evaluator else None))
+    exit_counts = {str(layer): 0 for layer in exit_required}
+    missing_layers = set(exit_required)
+    low_imp_prime = 0
+    imp_vals = []
+    effort_vals = []
+    worst_structural_dupe = {"target": None, "mode": None, "count": 0, "excess": 0}
+
+    from layer_access import shortcut_capability
+    for g in genomes:
+        row_invalid = not _sid_range_valid(g, len(shortcut_pool))
+        if row_invalid:
+            invalid_sid_rows += 1
+        for i, sid in enumerate(g):
+            max_sid = max(max_sid, int(sid))
+            if sid < -1 or sid >= len(shortcut_pool):
+                stale_sid_count += 1
+                continue
+            if sid >= 0:
+                imp = float(shortcut_pool[int(sid)].importance)
+                eff = float(positions[i].effort)
+                imp_vals.append(imp)
+                effort_vals.append(eff)
+                if imp < 4.0 and eff < 2.0:
+                    low_imp_prime += 1
+        if row_invalid:
+            continue
+        if evaluator and hasattr(evaluator, "structural_capability_duplicate_summary"):
+            summary = evaluator.structural_capability_duplicate_summary(g)
+            if summary.get("count", 0) > worst_structural_dupe.get("count", 0):
+                worst_structural_dupe = summary
+        analyzer = evaluator.access_analyzer if evaluator else None
+        val = analyzer.validate(g) if analyzer else None
+        if val is None or val.valid:
+            structural_valid += 1
+        caps = analyzer.capabilities_for_genome(g) if analyzer else []
+        for layer in exit_required:
+            method = None
+            try:
+                from representation import LAYER_ACCESS
+                method = LAYER_ACCESS.get(layer, {}).get("method", "")
+            except Exception:
+                method = ""
+            has_explicit_exit = any(cap.source == layer and cap.target == 0 for cap in caps)
+            has_toggle_return = (
+                method == "toggled"
+                and any(cap.target == layer and cap.mode == "toggle" for cap in caps)
+            )
+            has_exit = has_explicit_exit or has_toggle_return
+            if has_exit:
+                exit_counts[str(layer)] += 1
+                missing_layers.discard(layer)
+
+    corr = 0.0
+    if len(imp_vals) >= 2:
+        corr = float(np.corrcoef(np.array(imp_vals), np.array(effort_vals))[0, 1])
+        if np.isnan(corr):
+            corr = 0.0
+    return {
+        "structural_validity": {"valid": structural_valid, "total": n, "ratio": structural_valid / max(n, 1)},
+        "exit_coverage": {"required_layers": exit_required, "exit_counts": exit_counts, "missing_layers": sorted(missing_layers)},
+        "sid_health": {"invalid_genomes": invalid_sid_rows, "stale_sid_count": stale_sid_count, "max_sid": max_sid, "pool_size": len(shortcut_pool)},
+        "position_quality": {"importance_effort_correlation": corr, "low_importance_on_prime": low_imp_prime},
+        "structural_capability_duplicates": worst_structural_dupe,
+        "group_integrity": group_integrity_metrics(genomes, positions, shortcut_pool),
+    }
+
+
+def group_integrity_metrics(genomes, positions, shortcut_pool):
+    groups = {}
+    for group in KEY_GROUPS:
+        name = group.get("name", "group")
+        if name == "bt_profiles":
+            continue
+        if "behaviors" in group and name == "mouse_buttons":
+            sids = [s.sid for s in shortcut_pool if s.keys.startswith("select:mb")]
+            expected = len(sids)
+        else:
+            params = [p.upper() for p in group.get("params", [])]
+            mods_req = group.get("mods_required", "")
+            sids = []
+            for s in shortcut_pool:
+                key_upper = s.keys.upper()
+                if mods_req and mods_req.upper() not in key_upper:
+                    continue
+                if any(param in key_upper for param in params):
+                    sids.append(s.sid)
+            expected = len(group.get("params", []))
+        if expected >= 2 and len(sids) >= 2:
+            groups[name] = {"sids": set(sids), "expected": expected, "spatial": name in ("arrows",)}
+
+    result = {}
+    for name, info in groups.items():
+        intact = 0
+        partial = 0
+        for genome in genomes:
+            clusters = {}
+            for i, sid in enumerate(genome):
+                if sid not in info["sids"]:
+                    continue
+                pos = positions[i]
+                key = (pos.layer, pos.hand) if info["spatial"] else (pos.layer,)
+                clusters[key] = clusters.get(key, 0) + 1
+            best = max(clusters.values(), default=0)
+            if best >= info["expected"]:
+                intact += 1
+            elif best >= 2:
+                partial += 1
+        total = max(len(genomes), 1)
+        result[name] = {
+            "intact_pct": intact / total,
+            "partial_pct": partial / total,
+            "expected": info["expected"],
+        }
+    return result
+
+
+def diversity_injection_milestone(plateau_count, fired_milestones, config):
+    """Return the next injection milestone to fire, or None."""
+    milestones = sorted(int(x) for x in config.get("diversity_injection_plateaus", [150, 300, 450]))
+    for milestone in milestones:
+        if plateau_count >= milestone and milestone not in fired_milestones:
+            return milestone
+    return None
+
+
+def scratch_phase_for_generation(gen, best_violation_history, config, scratch_mode):
+    """Pick mutation phase from scratch improvement rate, with fixed fallback."""
+    if not scratch_mode:
+        return "explore" if gen < 100 else "balanced" if gen < 500 else "exploit"
+    if gen < 150:
+        return "explore"
+    force_gen = int(config.get("scratch_exploit_force_gen", 1200))
+    if gen >= force_gen:
+        return "exploit"
+    window = int(config.get("phase_window", 50))
+    if len(best_violation_history) <= window:
+        return "balanced"
+    old = float(best_violation_history[-window - 1])
+    new = float(best_violation_history[-1])
+    denom = max(abs(old), 1.0)
+    improvement = (old - new) / denom
+    if improvement <= float(config.get("exploit_max_improvement", 0.001)):
+        return "exploit"
+    return "balanced"
+
+
 def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_positions,
-                    build_dir=None, access_analyzer=None):
+                    build_dir=None, access_analyzer=None, ctx=None):
     from operators import swap_within_layer, swap_to_empty, migrate_shortcut, custom_mutate
 
     # Pre-seed unplaced important shortcuts into the base genome
@@ -253,7 +550,8 @@ def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_posit
     population = [copy.copy(seeded_genome)]
 
     prev_elites = load_previous_elites(
-        build_dir, len(current_genome), len(shortcut_pool), access_analyzer
+        build_dir, len(current_genome), len(shortcut_pool), access_analyzer,
+        expected_pool_hash=pool_hash(shortcut_pool)
     ) if build_dir else []
 
     # ~30% from previous elites (direct injection)
@@ -270,11 +568,11 @@ def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_posit
             for _ in range(n_swaps):
                 r = random.random()
                 if r < 0.5:
-                    base = swap_within_layer(base, positions, layer_positions, shortcut_pool)
+                    base = swap_within_layer(base, ctx)
                 elif r < 0.75:
-                    base = swap_to_empty(base, positions, layer_positions, shortcut_pool)
+                    base = swap_to_empty(base, ctx)
                 else:
-                    base = migrate_shortcut(base, positions, shortcut_pool, layer_positions)
+                    base = migrate_shortcut(base, ctx)
             population.append(base)
 
     # Conservative mutations of seeded layout
@@ -282,7 +580,7 @@ def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_posit
         ind = copy.copy(seeded_genome)
         n_swaps = random.randint(1, 5)
         for _ in range(n_swaps):
-            ind = swap_within_layer(ind, positions, layer_positions, shortcut_pool)
+            ind = swap_within_layer(ind, ctx)
         population.append(ind)
 
     # Fill rest with fresh exploration from seeded layout
@@ -292,38 +590,54 @@ def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_posit
         for _ in range(n_swaps):
             r = random.random()
             if r < 0.5:
-                ind = swap_within_layer(ind, positions, layer_positions, shortcut_pool)
+                ind = swap_within_layer(ind, ctx)
             elif r < 0.75:
-                ind = swap_to_empty(ind, positions, layer_positions, shortcut_pool)
+                ind = swap_to_empty(ind, ctx)
             else:
-                ind = migrate_shortcut(ind, positions, shortcut_pool, layer_positions)
+                ind = migrate_shortcut(ind, ctx)
         population.append(ind)
 
     return population[:n_pop]
 
 
-def seed_population_scratch(scratch_genome, n_pop, positions, shortcut_pool, layer_positions):
+def seed_population_scratch(scratch_genome, n_pop, positions, shortcut_pool, layer_positions, ctx=None, access_analyzer=None):
     """Seed population for from-scratch mode. Each individual gets a random
     number of shortcuts placed via importance-biased migrate_shortcut."""
     from operators import swap_within_layer, migrate_shortcut
 
     population = []
-    for _ in range(n_pop):
+    t0 = time.time()
+    progress_every = max(250, n_pop // 20)
+    for idx in range(n_pop):
         ind = copy.copy(scratch_genome)
         n_placements = random.randint(50, min(300, len(shortcut_pool)))
         for _ in range(n_placements):
-            ind = migrate_shortcut(ind, positions, shortcut_pool, layer_positions)
+            ind = migrate_shortcut(ind, ctx)
         n_swaps = random.randint(0, 15)
         for _ in range(n_swaps):
-            ind = swap_within_layer(ind, positions, layer_positions, shortcut_pool)
+            ind = swap_within_layer(ind, ctx)
+        ind, _ = ensure_structural_exits(
+            ind, positions, shortcut_pool, layer_positions, access_analyzer,
+            randomize=True, top_k=5,
+        )
         population.append(ind)
+        if (idx + 1) % progress_every == 0 or (idx + 1) == n_pop:
+            elapsed = time.time() - t0
+            rate = (idx + 1) / elapsed if elapsed > 0 else 0.0
+            print(f"  Scratch seeded {idx + 1}/{n_pop} ({rate:.1f}/s, {elapsed:.1f}s)")
+            sys.stdout.flush()
     return population[:n_pop]
 
 
 def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
-              usage_stats=None, conjunction_pairs=None, build_dir=None, scratch_mode=False):
+              usage_stats=None, conjunction_pairs=None, build_dir=None, scratch_mode=False,
+              ctx=None):
     layer_positions = build_layer_to_positions(positions)
     n_pos = len(positions)
+    if ctx is None:
+        ctx = OperatorContext(positions, shortcut_pool, layer_positions, evaluator.dynamic_groups)
+        if HAS_TORCH and evaluator.device != "cpu":
+            ctx.build_gpu_tensors(evaluator.device)
 
     if hasattr(creator, "FitnessMulti"):
         del creator.FitnessMulti
@@ -340,7 +654,7 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
         n = len(individuals)
         fits_np = np.array([ind.fitness.values for ind in individuals], dtype=np.float32)
 
-        if HAS_TORCH and torch.cuda.is_available():
+        if use_gpu_batch and HAS_TORCH and torch.cuda.is_available():
             d = "cuda"
             fits_t = torch.tensor(fits_np, device=d)
         else:
@@ -423,42 +737,237 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
     toolbox.register("evaluate", evaluator.evaluate)
     toolbox.register("select", fast_selNSGA2)
 
-    dynamic_groups = evaluator.dynamic_groups
-
-    def mate(ind1, ind2):
-        c1, c2 = pmx_crossover(list(ind1), list(ind2), positions, layer_positions, shortcut_pool, dynamic_groups)
-        return creator.Individual(c1), creator.Individual(c2)
-
     current_gen = [0]  # mutable container for closure access
-
-    def mutate(ind):
-        result = custom_mutate(list(ind), positions, shortcut_pool, layer_positions,
-                               dynamic_groups, scratch_mode=scratch_mode, generation=current_gen[0])
-        return (creator.Individual(result[0]),)
-
-    toolbox.register("mate", mate)
-    toolbox.register("mutate", mutate)
+    plateau_intensity = [1]  # mutation intensity: 1 normal, 2-3 when plateaued
+    best_violation_history = []
 
     pop_size = config.get("pop_size", 2000)
     n_gen = config.get("generations", 500)
     cxpb = config.get("crossover_rate", 0.7)
     mutpb = config.get("mutation_rate", 0.15)
 
+    def vary_population(population):
+        """Custom variation: crossover + mutation with no clones.
+        Every offspring is either crossed, mutated, or both."""
+        offspring = [toolbox.clone(ind) for ind in population]
+        n = len(offspring)
+        intensity = plateau_intensity[0]
+        gen = current_gen[0]
+        phase = scratch_phase_for_generation(gen, best_violation_history, config, scratch_mode)
+
+        # Crossover pass: pairs of consecutive individuals
+        for i in range(1, n, 2):
+            if random.random() < cxpb:
+                c1, c2 = pmx_crossover(list(offspring[i-1]), list(offspring[i]), ctx)
+                offspring[i-1] = creator.Individual(c1)
+                offspring[i] = creator.Individual(c2)
+                del offspring[i-1].fitness.values, offspring[i].fitness.values
+
+        # Mutation pass: mutate with mutpb, but guarantee no clones
+        for i in range(n):
+            if random.random() < mutpb or offspring[i].fitness.valid:
+                # offspring[i].fitness.valid means it wasn't crossed — must mutate to avoid clone
+                result = custom_mutate(list(offspring[i]), ctx,
+                                       scratch_mode=scratch_mode,
+                                       generation=gen,
+                                       n_ops=intensity,
+                                       phase=phase)
+                offspring[i] = creator.Individual(result[0])
+                del offspring[i].fitness.values
+
+        return offspring
+
+    # Cached numpy array for population — avoids repeated list→numpy conversion
+    pop_cache = [None]  # [np.ndarray or None]
+
+    def _pop_to_numpy(population):
+        """Convert population to numpy, using cache when possible."""
+        cached = pop_cache[0]
+        if cached is not None and cached.shape[0] == len(population):
+            return cached
+        arr = np.array([list(ind) for ind in population], dtype=np.int32)
+        pop_cache[0] = arr
+        return arr
+
+    verbose = config.get("verbose_logging", False)
+    _vary_timings = {}  # accumulated timing for verbose logging
+
+    def vary_population_gpu(population):
+        """GPU-accelerated variation: crossover + mutation hybrid GPU+CPU."""
+        from operators import (compute_protected_mask_gpu, GPU_OP_MAP, GPU_OP_IDS,
+                                _pick_operator, batch_crossover_gpu)
+        n = len(population)
+        intensity = plateau_intensity[0]
+        gen = current_gen[0]
+        S = ctx.pool_size
+        d = ctx.device
+
+        t_vary_start = time.perf_counter()
+
+        # Stack all genomes into tensor (int32 for faster transfer)
+        all_np = _pop_to_numpy(population).copy()
+        all_np[all_np < 0] = S
+        t_all = torch.tensor(all_np, device=d, dtype=torch.long)
+        t_data_in = time.perf_counter() - t_vary_start
+
+        # Track which indices have been modified
+        modified = np.zeros(n, dtype=bool)
+
+        # GPU crossover
+        cx_pairs_1 = []
+        cx_pairs_2 = []
+        for i in range(1, n, 2):
+            if random.random() < cxpb:
+                cx_pairs_1.append(i - 1)
+                cx_pairs_2.append(i)
+
+        t_cx_start = time.perf_counter()
+        if cx_pairs_1:
+            idx1 = torch.tensor(cx_pairs_1, device=d, dtype=torch.long)
+            idx2 = torch.tensor(cx_pairs_2, device=d, dtype=torch.long)
+            prot_all = compute_protected_mask_gpu(t_all, ctx)
+            prot_cx = prot_all[idx1] | prot_all[idx2]
+            c1, c2 = batch_crossover_gpu(t_all[idx1], t_all[idx2], prot_cx, ctx)
+            t_all[idx1] = c1
+            t_all[idx2] = c2
+            for a in cx_pairs_1:
+                modified[a] = True
+            for b in cx_pairs_2:
+                modified[b] = True
+        if HAS_TORCH:
+            torch.cuda.synchronize()
+        t_cx = time.perf_counter() - t_cx_start
+
+        # Determine phase (shortened explore for faster convergence)
+        phase = scratch_phase_for_generation(gen, best_violation_history, config, scratch_mode)
+
+        # Partition GPU vs CPU mutations
+        gpu_mut_indices = []
+        gpu_ops = []
+        cpu_tasks = []
+        op_counts = {}
+        for i in range(n):
+            if random.random() < mutpb or not modified[i]:
+                op = _pick_operator(random.random(), phase, scratch=scratch_mode)
+                op_counts[op] = op_counts.get(op, 0) + 1
+                if op in GPU_OP_IDS:
+                    gpu_mut_indices.append(i)
+                    gpu_ops.append(op)
+                else:
+                    ops_for_this = [op]
+                    for _ in range(intensity - 1):
+                        extra_op = _pick_operator(random.random(), phase, scratch=scratch_mode)
+                        ops_for_this.append(extra_op)
+                    cpu_tasks.append((i, ops_for_this))
+                modified[i] = True
+
+        # GPU batch mutation
+        t_gpu_mut_start = time.perf_counter()
+        gpu_op_counts = {}
+        if gpu_mut_indices:
+            t_idx = torch.tensor(gpu_mut_indices, device=d, dtype=torch.long)
+            sub_g = t_all[t_idx]
+            sub_prot = compute_protected_mask_gpu(sub_g, ctx)
+
+            op_arr = np.array(gpu_ops, dtype=np.int32)
+            for op_id, batch_fn in GPU_OP_MAP.items():
+                mask_np = (op_arr == op_id)
+                cnt = int(mask_np.sum())
+                if cnt == 0:
+                    continue
+                gpu_op_counts[op_id] = cnt
+                oi = np.where(mask_np)[0]
+                t_oi = torch.tensor(oi, device=d, dtype=torch.long)
+                sg = sub_g[t_oi]
+                sp = sub_prot[t_oi]
+                for _ in range(intensity):
+                    sg = batch_fn(sg, sp, ctx)
+                sub_g[t_oi] = sg
+            t_all[t_idx] = sub_g
+        if HAS_TORCH:
+            torch.cuda.synchronize()
+        t_gpu_mut = time.perf_counter() - t_gpu_mut_start
+
+        # Transfer back once, use int32 for faster tolist()
+        t_out_start = time.perf_counter()
+        result_np = t_all.cpu().numpy().astype(np.int32)
+        result_np[result_np >= S] = -1
+
+        # Build offspring — create Individuals directly from numpy rows
+        offspring = [None] * n
+        cpu_set = set()
+        for idx, _ in cpu_tasks:
+            cpu_set.add(idx)
+
+        for i in range(n):
+            if i in cpu_set:
+                offspring[i] = creator.Individual(list(population[i]))
+            elif modified[i]:
+                ind = creator.Individual(result_np[i].tolist())
+                del ind.fitness.values
+                offspring[i] = ind
+            else:
+                offspring[i] = creator.Individual(list(population[i]))
+        t_data_out = time.perf_counter() - t_out_start
+
+        # CPU fallback for complex operators
+        t_cpu_mut_start = time.perf_counter()
+        for off_idx, ops in cpu_tasks:
+            g = list(offspring[off_idx])
+            for op in ops:
+                r = custom_mutate(g, ctx, scratch_mode=scratch_mode, generation=gen, n_ops=1, phase=phase)
+                g = r[0]
+            offspring[off_idx] = creator.Individual(g)
+            if hasattr(offspring[off_idx].fitness, 'values'):
+                del offspring[off_idx].fitness.values
+        t_cpu_mut = time.perf_counter() - t_cpu_mut_start
+
+        t_vary_total = time.perf_counter() - t_vary_start
+
+        # Accumulate timings for verbose logging
+        if verbose:
+            tv = _vary_timings
+            tv["data_in"] = tv.get("data_in", 0) + t_data_in
+            tv["crossover"] = tv.get("crossover", 0) + t_cx
+            tv["gpu_mut"] = tv.get("gpu_mut", 0) + t_gpu_mut
+            tv["cpu_mut"] = tv.get("cpu_mut", 0) + t_cpu_mut
+            tv["data_out"] = tv.get("data_out", 0) + t_data_out
+            tv["total"] = tv.get("total", 0) + t_vary_total
+            tv["n_cx"] = tv.get("n_cx", 0) + len(cx_pairs_1)
+            tv["n_gpu"] = tv.get("n_gpu", 0) + len(gpu_mut_indices)
+            tv["n_cpu"] = tv.get("n_cpu", 0) + len(cpu_tasks)
+            tv["calls"] = tv.get("calls", 0) + 1
+            for k, v in gpu_op_counts.items():
+                tv[f"gpu_op_{k}"] = tv.get(f"gpu_op_{k}", 0) + v
+            for k, v in op_counts.items():
+                tv[f"op_{k}"] = tv.get(f"op_{k}", 0) + v
+
+        # Repairs may have changed rows after the GPU transfer.
+        pop_cache[0] = None
+
+        return offspring
+
     use_gpu_batch = evaluator.device != "cpu" and HAS_TORCH
     print(f"Seeding population: {pop_size} individuals, {n_pos} mutable positions")
     print(f"Device: {evaluator.device} | GPU batch eval: {use_gpu_batch}")
     sys.stdout.flush()
     if scratch_mode:
-        raw_pop = seed_population_scratch(current_genome, pop_size, positions, shortcut_pool, layer_positions)
+        raw_pop = seed_population_scratch(
+            current_genome, pop_size, positions, shortcut_pool, layer_positions,
+            ctx=ctx, access_analyzer=evaluator.access_analyzer
+        )
     else:
         raw_pop = seed_population(
             current_genome, pop_size, positions, shortcut_pool, layer_positions,
-            build_dir, evaluator.access_analyzer
+            build_dir, evaluator.access_analyzer, ctx=ctx
         )
     population = [creator.Individual(ind) for ind in raw_pop]
 
-    def batch_evaluate(pop_list):
+    def batch_evaluate(pop_list, use_cached_np=False):
         if use_gpu_batch:
+            cached = pop_cache[0] if use_cached_np else None
+            if cached is not None and cached.shape[0] == len(pop_list):
+                return evaluator.evaluate_batch_gpu(None, prebuilt_np=cached)
             return evaluator.evaluate_batch_gpu([list(ind) for ind in pop_list])
         return [toolbox.evaluate(ind) for ind in pop_list]
 
@@ -476,6 +985,7 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
     checkpoint_interval = config.get("checkpoint_interval", 25)
     ckpt_name = "evolution_scratch_checkpoint.json" if scratch_mode else "evolution_checkpoint.json"
     checkpoint_path = os.path.join(build_dir, ckpt_name) if build_dir else None
+    current_pool_hash = pool_hash(shortcut_pool)
 
     # Try to resume from checkpoint
     start_gen = 0
@@ -489,8 +999,22 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                 ckpt = json.load(f)
             if (ckpt.get("n_positions") == n_pos and
                 ckpt.get("pop_size") == pop_size and
-                ckpt.get("config_hash") == _config_hash(config)):
-                saved_pop = ckpt["population"]
+                ckpt.get("config_hash") == _config_hash(config) and
+                ckpt.get("pool_size") == len(shortcut_pool) and
+                ckpt.get("pool_hash") == current_pool_hash):
+                # Load population: try npz first (fast), fall back to JSON
+                npz_path = checkpoint_path.replace('.json', '.npz')
+                if os.path.exists(npz_path):
+                    pop_arr = np.load(npz_path)["population"].astype(np.int32)
+                    saved_pop = [pop_arr[i].tolist() for i in range(pop_arr.shape[0])]
+                elif "population" in ckpt:
+                    saved_pop = ckpt["population"]
+                else:
+                    raise KeyError("No population data in checkpoint")
+                if any(not _sid_range_valid(g, len(shortcut_pool)) for g in saved_pop):
+                    print("  Checkpoint found but contains stale/out-of-range SIDs -- starting fresh")
+                    sys.stdout.flush()
+                    raise ValueError("checkpoint contains stale SID")
                 if evaluator.access_analyzer and any(
                     not evaluator.access_analyzer.validate(g).valid for g in saved_pop
                 ):
@@ -509,7 +1033,7 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                       f"(best effort {best_effort_ever:.1f})")
                 sys.stdout.flush()
             else:
-                print("  Checkpoint found but config changed -- starting fresh")
+                print("  Checkpoint found but metadata changed -- starting fresh")
                 sys.stdout.flush()
         except (json.JSONDecodeError, KeyError, Exception) as e:
             print(f"  Checkpoint load failed ({e}) -- starting fresh")
@@ -527,24 +1051,34 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
     logbook = tools.Logbook()
     logbook.header = ["gen", "nevals", "min", "avg"]
 
+    fired_injection_milestones = set()
+
     t0 = time.time()
 
     def save_checkpoint(gen):
         if not checkpoint_path:
             return
-        ckpt = {
+        # Save population as compressed numpy for speed + size (~2MB vs ~20MB JSON)
+        pop_arr = np.array([list(ind) for ind in population], dtype=np.int16)
+        npz_path = checkpoint_path.replace('.json', '.npz')
+        tmp_npz = npz_path + ".tmp.npz"
+        np.savez_compressed(tmp_npz, population=pop_arr)
+        _safe_replace(tmp_npz, npz_path)
+        # Save metadata as small JSON
+        meta = {
             "generation": gen,
             "n_positions": n_pos,
             "pop_size": pop_size,
             "config_hash": _config_hash(config),
-            "best_effort_ever": best_effort_ever,
-            "plateau_count": plateau_count,
+            "pool_size": len(shortcut_pool),
+            "pool_hash": current_pool_hash,
+            "best_effort_ever": float(best_effort_ever),
+            "plateau_count": int(plateau_count),
             "convergence": convergence,
-            "population": [list(ind) for ind in population],
         }
         tmp = checkpoint_path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(ckpt, f)
+            json.dump(json_safe(meta), f, cls=NumpyEncoder)
         _safe_replace(tmp, checkpoint_path)
 
     def save_interim_results(gen):
@@ -552,11 +1086,14 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
         if not build_dir:
             return
         try:
+            diagnostics = population_diagnostics(population, positions, shortcut_pool, evaluator)
             cur_front = tools.sortNondominated(population, len(population), first_front_only=True)[0]
-            cur_front.sort(key=lambda ind: ind.fitness.values[0])
+            cur_front.sort(key=lambda ind: (ind.fitness.values[2], ind.fitness.values[0], ind.fitness.values[1]))
             interim = []
             for i, ind in enumerate(cur_front[:config.get("pareto_front_size", 20)]):
                 genome = list(ind)
+                if not _sid_range_valid(genome, len(shortcut_pool)):
+                    continue
                 access_validation = evaluator.access_analyzer.validate(genome) if evaluator.access_analyzer else None
                 if access_validation is not None and not access_validation.valid:
                     continue
@@ -574,13 +1111,16 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
             interim_path = os.path.join(build_dir, interim_name)
             tmp = interim_path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({
+                json.dump(json_safe({
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     "generation": gen,
                     "status": "in_progress",
+                    "pool_size": len(shortcut_pool),
+                    "pool_hash": current_pool_hash,
+                    "diagnostics": diagnostics,
                     "pareto_front": interim,
                     "convergence": convergence,
-                }, f, indent=2)
+                }), f, indent=2, cls=NumpyEncoder)
             _safe_replace(tmp, interim_path)
         except Exception as e:
             print(f"  WARNING: interim save failed: {e}")
@@ -588,14 +1128,75 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
     try:
         for gen in range(start_gen, n_gen):
             current_gen[0] = gen
-            offspring = algorithms.varAnd(population, toolbox, cxpb, mutpb)
+            if use_gpu_batch and hasattr(ctx, 'device') and ctx.device != 'cpu':
+                try:
+                    offspring = vary_population_gpu(population)
+                except (RuntimeError,) + CUDA_OOM_ERRORS:
+                    if HAS_TORCH:
+                        torch.cuda.empty_cache()
+                    if hasattr(evaluator, "_validation_cache"):
+                        evaluator._validation_cache.clear()
+                    save_checkpoint(gen)
+                    save_interim_results(gen)
+                    print(f"  CUDA OOM/runtime error during variation at gen {gen}; falling back to CPU variation")
+                    sys.stdout.flush()
+                    offspring = vary_population(population)
+            else:
+                offspring = vary_population(population)
 
             invalid = [ind for ind in offspring if not ind.fitness.valid]
-            fitnesses = batch_evaluate(invalid)
+            t_eval_start = time.perf_counter()
+            all_invalid = (len(invalid) == len(offspring))
+            try:
+                fitnesses = batch_evaluate(invalid, use_cached_np=all_invalid)
+            except CUDA_OOM_ERRORS:
+                if HAS_TORCH:
+                    torch.cuda.empty_cache()
+                if hasattr(evaluator, "_validation_cache"):
+                    evaluator._validation_cache.clear()
+                save_checkpoint(gen)
+                save_interim_results(gen)
+                print(f"  CUDA OOM during eval at gen {gen}; cleared cache and retrying once")
+                sys.stdout.flush()
+                try:
+                    fitnesses = batch_evaluate(invalid, use_cached_np=all_invalid)
+                except CUDA_OOM_ERRORS:
+                    if HAS_TORCH:
+                        torch.cuda.empty_cache()
+                    if hasattr(evaluator, "_validation_cache"):
+                        evaluator._validation_cache.clear()
+                    use_gpu_batch = False
+                    print(f"  CUDA OOM repeated at gen {gen}; switching to CPU evaluation")
+                    sys.stdout.flush()
+                    fitnesses = batch_evaluate(invalid, use_cached_np=False)
             for ind, fit in zip(invalid, fitnesses):
                 ind.fitness.values = fit
+            t_eval = time.perf_counter() - t_eval_start
 
-            population = toolbox.select(population + offspring, pop_size)
+            t_sel_start = time.perf_counter()
+            try:
+                population = toolbox.select(population + offspring, pop_size)
+            except CUDA_OOM_ERRORS:
+                if HAS_TORCH:
+                    torch.cuda.empty_cache()
+                if hasattr(evaluator, "_validation_cache"):
+                    evaluator._validation_cache.clear()
+                save_checkpoint(gen)
+                save_interim_results(gen)
+                print(f"  CUDA OOM during selection at gen {gen}; retrying selection on CPU")
+                sys.stdout.flush()
+                use_gpu_batch = False
+                population = toolbox.select(population + offspring, pop_size)
+            t_sel = time.perf_counter() - t_sel_start
+            pop_cache[0] = None  # invalidate cache after selection reshuffles
+
+            if verbose:
+                _vary_timings["eval"] = _vary_timings.get("eval", 0) + t_eval
+                _vary_timings["select"] = _vary_timings.get("select", 0) + t_sel
+                _vary_timings["n_invalid"] = _vary_timings.get("n_invalid", 0) + len(invalid)
+                if hasattr(evaluator, '_last_cache_hits'):
+                    _vary_timings["cache_hits"] = _vary_timings.get("cache_hits", 0) + evaluator._last_cache_hits
+                    _vary_timings["cache_misses"] = _vary_timings.get("cache_misses", 0) + evaluator._last_cache_misses
 
             record = stats.compile(population)
             logbook.record(gen=gen, nevals=len(invalid), **record)
@@ -604,6 +1205,7 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
             best_eff = min(population, key=lambda ind: ind.fitness.values[0])
             best_viol = min(population, key=lambda ind: ind.fitness.values[2])
             current_best_viol = best_viol.fitness.values[2]
+            best_violation_history.append(float(current_best_viol))
 
             if current_best_viol < best_effort_ever - 1.0:
                 best_effort_ever = current_best_viol
@@ -611,15 +1213,196 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
             else:
                 plateau_count += 1
 
+            # Adaptive mutation intensity: escalate when stuck
+            if plateau_count < 50:
+                plateau_intensity[0] = 1
+            elif plateau_count < 150:
+                plateau_intensity[0] = 2
+            else:
+                plateau_intensity[0] = 3
+
+            # Diversity injection: replace a small fraction at fixed plateau milestones.
+            injection_milestone = diversity_injection_milestone(plateau_count, fired_injection_milestones, config)
+            if injection_milestone is not None:
+                from operators import migrate_shortcut
+                injection_rate = float(config.get("diversity_injection_rate", 0.02))
+                n_inject = max(1, int(pop_size * injection_rate)) if injection_rate > 0 else 0
+                if n_inject <= 0:
+                    fired_injection_milestones.add(injection_milestone)
+                else:
+                    inject_indices = random.sample(range(pop_size), min(n_inject, pop_size))
+                    for ii in inject_indices:
+                        fresh = copy.copy(current_genome)
+                        for _ in range(random.randint(20, 50)):
+                            fresh = migrate_shortcut(fresh, ctx)
+                        fresh, _ = ensure_structural_exits(
+                            fresh, positions, shortcut_pool, layer_positions, evaluator.access_analyzer,
+                            randomize=True, top_k=5,
+                        )
+                        population[ii] = creator.Individual(fresh)
+                        del population[ii].fitness.values
+                    fresh_fits = batch_evaluate([population[ii] for ii in inject_indices])
+                    for ii_idx, ii in enumerate(inject_indices):
+                        population[ii].fitness.values = fresh_fits[ii_idx]
+                    fired_injection_milestones.add(injection_milestone)
+                    pop_cache[0] = None
+                    print(f"  Injected {n_inject} fresh genomes at plateau {plateau_count} (milestone {injection_milestone})")
+                    sys.stdout.flush()
+
             # Decay violation threshold for feasibility-first selection
             violation_threshold[0] = max(5000.0, current_best_viol * 2.0)
 
             if gen % checkpoint_interval == 0 or gen == n_gen - 1:
                 elapsed = time.time() - t0
+                mut_info = f" mut_x{plateau_intensity[0]}" if plateau_intensity[0] > 1 else ""
                 print(f"  Gen {gen:4d}: eff={best_eff.fitness.values[0]:.0f} "
                       f"adj={-best_eff.fitness.values[1]:.0f} "
                       f"viol={best_viol.fitness.values[2]:.0f} "
-                      f"({elapsed:.1f}s) plateau={plateau_count}")
+                      f"({elapsed:.1f}s) plateau={plateau_count}{mut_info}")
+
+                if verbose:
+                    try:
+                        fits = np.array([ind.fitness.values for ind in population], dtype=np.float32)
+                        assigned_counts = np.array([sum(1 for g in ind if g >= 0) for ind in population])
+                        unique_genomes = len(set(tuple(ind) for ind in population))
+                        n_feasible = int((fits[:, 2] <= violation_threshold[0]).sum())
+
+                        # Population stats
+                        print(f"    pop: {unique_genomes}/{pop_size} unique, "
+                              f"{n_feasible}/{pop_size} feasible (viol<={violation_threshold[0]:.0f}), "
+                              f"assigned={assigned_counts.min()}-{assigned_counts.max()} "
+                              f"(mean={assigned_counts.mean():.0f})")
+                        print(f"    fitness: eff={fits[:,0].min():.0f}/{fits[:,0].mean():.0f}/{fits[:,0].std():.0f} "
+                              f"adj={-fits[:,1].max():.0f}/{-fits[:,1].mean():.0f}/{-fits[:,1].min():.0f} "
+                              f"viol={fits[:,2].min():.0f}/{fits[:,2].mean():.0f}/{fits[:,2].std():.0f}")
+
+                        diagnostics = population_diagnostics(population, positions, shortcut_pool, evaluator)
+                        sv = diagnostics["structural_validity"]
+                        sid_h = diagnostics["sid_health"]
+                        ex = diagnostics["exit_coverage"]
+                        pq = diagnostics["position_quality"]
+                        scd = diagnostics["structural_capability_duplicates"]
+                        gi = diagnostics.get("group_integrity", {})
+                        print(f"    structural: {sv['valid']}/{sv['total']} valid "
+                              f"({sv['ratio']:.0%}), missing_exits={ex['missing_layers']}")
+                        if sv["valid"] == 0:
+                            print("    WARNING: structural validity is 0%; selection has no valid layouts")
+                        print(f"    sid_health: stale={sid_h['stale_sid_count']} "
+                              f"invalid_genomes={sid_h['invalid_genomes']} max_sid={sid_h['max_sid']} "
+                              f"pool={sid_h['pool_size']}")
+                        print(f"    position_quality: imp_eff_corr={pq['importance_effort_correlation']:.3f} "
+                              f"low_imp_prime={pq['low_importance_on_prime']}")
+                        print(f"    structural_capability_duplicates: target={scd['target']} "
+                              f"mode={scd['mode']} count={scd['count']} excess={scd['excess']}")
+                        if gi:
+                            gi_parts = [
+                                f"{name}={vals['intact_pct']:.0%}"
+                                for name, vals in sorted(gi.items())
+                            ]
+                            print(f"    group_integrity: {' '.join(gi_parts)}")
+
+                        # Best individual breakdown
+                        best_genome = list(best_viol)
+                        bd = evaluator.evaluate_full(best_genome)
+                        skip_keys = {"effort", "adjacency", "violations", "layer_access_valid",
+                                     "layer_exit_valid", "layer_access_cost", "layer_access_errors",
+                                     "layer_demand", "per_layer_access_costs", "per_layer_depth"}
+                        parts = []
+                        for k, val_v in bd.items():
+                            if k in skip_keys:
+                                continue
+                            try:
+                                fv = float(val_v)
+                            except (TypeError, ValueError):
+                                continue
+                            if abs(fv) > 0.01:
+                                parts.append(f"{k}={fv:.1f}")
+                        if parts:
+                            print(f"    best: {', '.join(parts)}")
+                        offenders = evaluator.same_finger_offenders(best_genome, limit=10) if hasattr(evaluator, "same_finger_offenders") else []
+                        if offenders:
+                            offender_parts = [
+                                f"{o['key_a']}+{o['key_b']}={o['score']:.1f}"
+                                for o in offenders[:10]
+                            ]
+                            print(f"    same_finger_top: {'; '.join(offender_parts)}")
+
+                        # Cross-layer duplicates count
+                        sid_layers = {}
+                        cap_sids = evaluator._capability_sid_set() if hasattr(evaluator, "_capability_sid_set") else set()
+                        for idx_g, sid in enumerate(best_genome):
+                            if sid >= 0 and sid not in cap_sids:
+                                sid_layers.setdefault(sid, set()).add(positions[idx_g].layer)
+                        xdupes = sum(1 for s, ls in sid_layers.items() if len(ls) >= 3)
+                        if xdupes > 0:
+                            print(f"    cross_dupes: {xdupes} SIDs on 3+ layers")
+
+                        # Diversity: average hamming distance between 20 random pairs
+                        sample_size = min(20, pop_size // 2)
+                        sample_idx = random.sample(range(pop_size), sample_size * 2)
+                        hamming_dists = []
+                        for hi in range(0, sample_size * 2, 2):
+                            g1 = population[sample_idx[hi]]
+                            g2 = population[sample_idx[hi + 1]]
+                            hamming_dists.append(sum(1 for a, b in zip(g1, g2) if a != b))
+                        avg_hamming = sum(hamming_dists) / len(hamming_dists) if hamming_dists else 0
+
+                        # Pareto front stats
+                        try:
+                            pf = tools.sortNondominated(population, len(population), first_front_only=True)[0]
+                            pf_fits = np.array([ind.fitness.values for ind in pf], dtype=np.float32)
+                            pf_info = f"pf={len(pf)} eff=[{pf_fits[:,0].min():.0f},{pf_fits[:,0].max():.0f}] viol=[{pf_fits[:,2].min():.0f},{pf_fits[:,2].max():.0f}]"
+                        except Exception:
+                            pf_info = ""
+                        print(f"    diversity: hamming={avg_hamming:.0f} {pf_info}")
+
+                        # Timing + cache stats
+                        tv = _vary_timings
+                        nc = max(tv.get("calls", 1), 1)
+                        t_gen_avg = (tv.get('total',0) + tv.get('eval',0) + tv.get('select',0)) / nc
+                        cache_entries = len(evaluator._validation_cache) if hasattr(evaluator, '_validation_cache') else 0
+                        cache_hits = tv.get('cache_hits', 0)
+                        cache_misses = tv.get('cache_misses', 0)
+                        cache_total = cache_hits + cache_misses
+                        cache_rate = f" hit={cache_hits/cache_total:.0%}" if cache_total > 0 else ""
+                        print(f"    timing: {t_gen_avg*1000:.0f}ms/gen "
+                              f"(vary={tv.get('total',0)/nc*1000:.0f} "
+                              f"eval={tv.get('eval',0)/nc*1000:.0f} "
+                              f"sel={tv.get('select',0)/nc*1000:.0f}) "
+                              f"nevals={tv.get('n_invalid',0)//nc} "
+                              f"vcache={cache_entries}{cache_rate}")
+                        if HAS_TORCH and evaluator.device != "cpu" and torch.cuda.is_available():
+                            alloc = torch.cuda.memory_allocated() / 1e9
+                            reserved = torch.cuda.memory_reserved() / 1e9
+                            max_alloc = torch.cuda.max_memory_allocated() / 1e9
+                            max_reserved = torch.cuda.max_memory_reserved() / 1e9
+                            print(f"    vram: alloc={alloc:.2f}GB reserved={reserved:.2f}GB "
+                                  f"max_alloc={max_alloc:.2f}GB max_reserved={max_reserved:.2f}GB")
+                            torch.cuda.reset_peak_memory_stats()
+                        if tv.get('total', 0) > 0:
+                            print(f"    vary: data_in={tv.get('data_in',0)/nc*1000:.0f} "
+                                  f"cx={tv.get('crossover',0)/nc*1000:.0f} "
+                                  f"gpu={tv.get('gpu_mut',0)/nc*1000:.0f} "
+                                  f"cpu={tv.get('cpu_mut',0)/nc*1000:.0f} "
+                                  f"out={tv.get('data_out',0)/nc*1000:.0f}")
+
+                        # Phase + operator distribution
+                        cur_phase = scratch_phase_for_generation(gen, best_violation_history, config, scratch_mode)
+                        op_names = {0:"swp",1:"s2e",2:"mig",3:"grp",4:"thm",
+                                    5:"dup",6:"coh",7:"sly",8:"red",9:"xld"}
+                        op_parts = []
+                        for oid in range(10):
+                            c = tv.get(f"op_{oid}", 0)
+                            if c > 0:
+                                tag = "G" if oid in GPU_OP_IDS else "C"
+                                op_parts.append(f"{op_names[oid]}={c//nc}{tag}")
+                        print(f"    ops: phase={cur_phase} cx={tv.get('n_cx',0)//nc} "
+                              f"gpu={tv.get('n_gpu',0)//nc} cpu={tv.get('n_cpu',0)//nc} "
+                              f"| {' '.join(op_parts)}")
+                    except Exception as log_err:
+                        print(f"    [log error: {log_err}]")
+                    _vary_timings.clear()
+
                 sys.stdout.flush()
                 convergence.append({
                     "gen": gen, "elapsed_s": round(elapsed, 1),
@@ -662,7 +1445,7 @@ def _config_hash(config):
     return hashlib.md5(json.dumps(relevant, sort_keys=True).encode()).hexdigest()[:12]
 
 
-def run_qd(evaluator, current_genome, positions, shortcut_pool, config):
+def run_qd(evaluator, current_genome, positions, shortcut_pool, config, ctx=None):
     if not QD_AVAILABLE:
         print("pyribs not available, skipping QD. Install with: pip install ribs")
         return None, []
@@ -696,7 +1479,9 @@ def run_qd(evaluator, current_genome, positions, shortcut_pool, config):
         else:
             parent = copy.copy(current_genome)
 
-        child = custom_mutate(parent, positions, shortcut_pool, layer_positions, evaluator.dynamic_groups, scratch_mode=False)[0]
+        if ctx is None:
+            ctx = OperatorContext(positions, shortcut_pool, layer_positions, evaluator.dynamic_groups)
+        child = custom_mutate(parent, ctx, scratch_mode=False)[0]
         child_arr = np.array(child, dtype=np.float64)
         fitness_tuple = evaluator.evaluate(child)
         obj = -fitness_tuple[0]
@@ -878,23 +1663,24 @@ def main():
 
     if scratch_mode:
         current_genome = build_scratch_genome(canonical, positions, shortcut_pool)
-        # Freeze assigned L0 keys (letters, numbers, etc.), leave empty L0 thumbs open
+        layer_positions = build_layer_to_positions(positions)
+        current_genome, repaired = ensure_structural_exits(
+            current_genome, positions, shortcut_pool, layer_positions
+        )
+        if repaired:
+            print("Seeded structural exits into scratch base genome")
         open_l0 = [i for i, p in enumerate(positions) if p.layer == 0 and current_genome[i] < 0]
-        set_frozen_l0(positions, open_l0)
     else:
         current_genome = encode_current_layout(canonical, positions, shortcut_pool)
-        # Freeze most L0 positions — only configured keys are open
+        layer_positions = build_layer_to_positions(positions)
         open_l0_keys = set(config.get("open_l0_keys", []))
+        open_l0 = []
         if open_l0_keys:
-            open_indices = []
             for i, p in enumerate(positions):
                 if p.layer == 0 and current_genome[i] >= 0:
                     key_name = shortcut_pool[current_genome[i]].keys
                     if key_name in open_l0_keys:
-                        open_indices.append(i)
-            set_frozen_l0(positions, open_indices)
-
-    # L2 mouse no longer frozen — protected by mouse_accessibility reward
+                        open_l0.append(i)
 
     evaluator = FitnessEvaluator(
         positions, shortcut_pool, config,
@@ -904,6 +1690,11 @@ def main():
         current_genome=current_genome,
         canonical=canonical,
     )
+
+    ctx = OperatorContext(positions, shortcut_pool, layer_positions, evaluator.dynamic_groups)
+    ctx.set_frozen_l0(positions, open_l0)
+    if HAS_TORCH and device != "cpu":
+        ctx.build_gpu_tensors(device)
     assigned_count = sum(1 for g in current_genome if g >= 0)
     print(f"Current layout: {assigned_count}/{len(current_genome)} positions assigned")
 
@@ -918,15 +1709,22 @@ def main():
     sys.stdout.flush()
     front, convergence = run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                                     usage_stats=usage_stats, conjunction_pairs=conjunction_pairs,
-                                    build_dir=build_dir, scratch_mode=scratch_mode)
+                                    build_dir=build_dir, scratch_mode=scratch_mode, ctx=ctx)
+    final_diagnostics = population_diagnostics(front, positions, shortcut_pool, evaluator)
+    current_pool_hash = pool_hash(shortcut_pool)
 
     pareto_solutions = []
     valid_front = []
     for ind in front:
-        if evaluator.access_analyzer is None or evaluator.access_analyzer.validate(list(ind)).valid:
+        genome = list(ind)
+        if (not _sid_range_valid(genome, len(shortcut_pool))):
+            continue
+        if evaluator.access_analyzer is None or evaluator.access_analyzer.validate(genome).valid:
             valid_front.append(ind)
     if len(valid_front) < len(front):
         print(f"Filtered {len(front) - len(valid_front)} invalid layer-access solution(s) from Pareto front")
+    if not valid_front:
+        print("WARNING: no structurally valid Pareto solutions; writing diagnostic result only")
 
     for i, ind in enumerate(valid_front[:config.get("pareto_front_size", 20)]):
         genome = list(ind)
@@ -955,11 +1753,15 @@ def main():
     if QD_AVAILABLE:
         print(f"\n--- Quality-Diversity MAP-Elites ---")
         sys.stdout.flush()
-        qd_elites, qd_archive = run_qd(evaluator, current_genome, positions, shortcut_pool, config)
+        qd_elites, qd_archive = run_qd(evaluator, current_genome, positions, shortcut_pool, config, ctx=ctx)
         if qd_elites:
             qd_results = []
             for i, elite in enumerate(qd_elites[:20]):
                 genome = elite["genome"]
+                if not _sid_range_valid(genome, len(shortcut_pool)):
+                    continue
+                if evaluator.access_analyzer and not evaluator.access_analyzer.validate(genome).valid:
+                    continue
                 changes = decode_genome(genome, positions, shortcut_pool)
                 breakdown = evaluator.evaluate_full(genome)
                 qd_results.append({
@@ -984,7 +1786,11 @@ def main():
         "device": device,
         "positions_count": len(positions),
         "shortcuts_count": len(shortcut_pool),
+        "pool_size": len(shortcut_pool),
+        "pool_hash": current_pool_hash,
         "conjunction_pairs_count": len(conjunction_pairs),
+        "status": "ok" if pareto_solutions else "no_valid_solutions",
+        "diagnostics": final_diagnostics,
         "seed_fitness": {
             "effort": round(seed_fitness[0], 2),
             "adjacency": round(-seed_fitness[1], 2),
@@ -999,28 +1805,20 @@ def main():
         output["qd_archive"] = qd_archive_stats
         output["qd_solutions"] = qd_results
 
-    class NumpyEncoder(json.JSONEncoder):
-        def default(self, obj):
-            if isinstance(obj, (np.integer,)):
-                return int(obj)
-            if isinstance(obj, (np.floating,)):
-                return float(obj)
-            if isinstance(obj, np.ndarray):
-                return obj.tolist()
-            return super().default(obj)
-
     results_name = "evolution_scratch_results.json" if scratch_mode else "evolution_results.json"
     out_path = os.path.join(build_dir, results_name)
     tmp_path = out_path + ".tmp"
     with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, indent=2, cls=NumpyEncoder)
+        json.dump(json_safe(output), f, indent=2, cls=NumpyEncoder)
     _safe_replace(tmp_path, out_path)
 
     # Clean up checkpoint and interim on successful completion
     if scratch_mode:
-        cleanup_files = ["evolution_scratch_checkpoint.json", "evolution_scratch_results_interim.json"]
+        cleanup_files = ["evolution_scratch_checkpoint.json", "evolution_scratch_results_interim.json",
+                         "evolution_scratch_checkpoint.npz"]
     else:
-        cleanup_files = ["evolution_checkpoint.json", "evolution_results_interim.json"]
+        cleanup_files = ["evolution_checkpoint.json", "evolution_results_interim.json",
+                         "evolution_checkpoint.npz"]
     for cleanup in cleanup_files:
         p = os.path.join(build_dir, cleanup)
         if os.path.exists(p):
@@ -1038,7 +1836,7 @@ def main():
     # Auto-analyze best solution
     try:
         from analyze_results import load_data, analyze
-        _, a_positions, a_pool, a_current, _ = load_data(build_dir)
+        _, a_positions, a_pool, a_current, _ = load_data(build_dir, scratch=scratch_mode)
         best_genome = pareto_solutions[0]["genome"] if pareto_solutions else None
         if best_genome:
             print("\n" + analyze(best_genome, a_positions, a_pool, a_current, canonical, config))

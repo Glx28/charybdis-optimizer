@@ -5,6 +5,7 @@ with zero Python loops in the hot path.
 """
 import math
 import numpy as np
+from collections import OrderedDict
 
 try:
     import torch
@@ -33,6 +34,7 @@ class FitnessEvaluator:
         self.usage_stats = usage_stats or {}
         self.conjunction_pairs = conjunction_pairs or {}
         self.device = device
+        self.exact_gpu_scoring = bool(config.get("exact_gpu_scoring", config.get("exact_gpu_adjacency", False)))
         self.n_positions = len(positions)
         self.n_shortcuts = len(shortcut_pool)
         self.layer_positions = build_layer_to_positions(positions)
@@ -56,8 +58,10 @@ class FitnessEvaluator:
 
         # Pad index S as "empty" sentinel
         self.importance_arr = np.zeros(S + 1, dtype=np.float32)
+        self.raw_importance_arr = np.zeros(S + 1, dtype=np.float32)
         for s in self.pool:
             self.importance_arr[s.sid] = s.importance
+            self.raw_importance_arr[s.sid] = s.importance
 
         self.usage_boost = np.ones(S + 1, dtype=np.float32)
         shortcuts_usage = self.usage_stats.get("shortcuts", {})
@@ -81,7 +85,14 @@ class FitnessEvaluator:
         n_layers = max(unique_layers) + 1 if unique_layers else 0
         self.layer_usage_mult = np.ones((S + 1, n_layers), dtype=np.float32)
         sid_by_keys = {s.keys: s.sid for s in self.pool}
-        by_layer_shortcut = self.usage_stats.get("by_layer_shortcut", {})
+        by_layer_shortcut = dict(self.usage_stats.get("by_layer_shortcut", {}))
+        # Merge mouse_by_layer into by_layer_shortcut so mouse buttons get
+        # per-layer usage multipliers just like keyboard shortcuts
+        for btn, layer_counts in self.usage_stats.get("mouse_by_layer", {}).items():
+            if btn not in by_layer_shortcut:
+                by_layer_shortcut[btn] = {}
+            for lyr, cnt in layer_counts.items():
+                by_layer_shortcut[btn][str(lyr)] = by_layer_shortcut[btn].get(str(lyr), 0) + cnt
         for keys, layer_counts in by_layer_shortcut.items():
             sid = sid_by_keys.get(keys)
             if sid is None:
@@ -100,8 +111,44 @@ class FitnessEvaluator:
                     # Scale: 0% usage -> 0.3x, 50%+ -> 1.0x
                     self.layer_usage_mult[sid, layer] = max(0.3, min(1.0, 0.3 + ratio * 1.4))
 
+        # Mouse button usage boost from mouse_by_layer
+        mouse_by_layer = self.usage_stats.get("mouse_by_layer", {})
+        for s in self.pool:
+            if s.keys in mouse_by_layer:
+                total_clicks = sum(mouse_by_layer[s.keys].values())
+                if total_clicks > 0:
+                    self.usage_boost[s.sid] = max(
+                        self.usage_boost[s.sid], 1.0 + math.log(1 + total_clicks)
+                    )
+                    if total_clicks >= 3:
+                        self.importance_arr[s.sid] = max(self.importance_arr[s.sid], 9.0)
+
+        # Scroll toggle key boost from scroll_total
+        scroll_total = self.usage_stats.get("scroll_total", 0)
+        if scroll_total > 0:
+            for s in self.pool:
+                if "scroll" in s.keys.lower() or (
+                    hasattr(s, "action") and "scroll" in getattr(s, "action", "").lower()
+                ):
+                    self.usage_boost[s.sid] = max(
+                        self.usage_boost[s.sid], 1.0 + math.log(1 + scroll_total)
+                    )
+                    self.importance_arr[s.sid] = max(self.importance_arr[s.sid], 9.0)
+
+        # Layer switch key boost from layer_switch_activations
+        layer_activations = self.usage_stats.get("layer_switch_activations", {})
+        for s in self.pool:
+            if s.keys.startswith("coach_") and s.keys.endswith("_hold"):
+                layer_match = s.keys.replace("coach_l", "").replace("_hold", "")
+                act_count = layer_activations.get(layer_match, 0)
+                if act_count > 0:
+                    self.usage_boost[s.sid] = max(
+                        self.usage_boost[s.sid], 1.0 + math.log(1 + act_count)
+                    )
+                    if act_count >= 10:
+                        self.importance_arr[s.sid] = max(self.importance_arr[s.sid], 9.0)
+
         # Blind spot importance boost: shortcuts the user SHOULD use but doesn't
-        # get a mild importance boost to ensure they're placed accessibly
         blind_spots = self.usage_stats.get("blind_spots", [])
         self.blind_spot_boost = np.zeros(S + 1, dtype=np.float32)
         blind_lookup = {(b["app"], b["keys"]): b["blind_spot_score"] for b in blind_spots}
@@ -139,9 +186,19 @@ class FitnessEvaluator:
             layer for layer, info in LAYER_ACCESS.items()
             if info.get("method") == "toggled"
         }
+        self.exit_required_layers = {
+            layer for layer, info in LAYER_ACCESS.items()
+            if info.get("method") in ("toggled", "locked", "momentary_or_locked")
+        }
+        if self.access_analyzer is not None:
+            self.exit_required_layers = set(self.access_analyzer.exit_required_layers)
         self.momentary_layers = {
             layer for layer, info in LAYER_ACCESS.items()
             if "momentary" in info.get("method", "")
+        }
+        self.pure_momentary_layers = {
+            layer for layer, info in LAYER_ACCESS.items()
+            if info.get("method") == "momentary"
         }
         self._build_thumb_busy_penalty()
         self._build_layer_importance_multipliers()
@@ -154,6 +211,8 @@ class FitnessEvaluator:
         self._build_toggled_layer_effort()
         self._build_toggled_base_requirement()
         self._build_l0_only_base_keys()
+        self._build_frozen_l0_duplicate_data()
+        self._build_structural_capability_data()
         self._build_app_coherence_data()
         self._build_mouse_accessibility_data()
         self._build_layer_demand()
@@ -322,11 +381,14 @@ class FitnessEvaluator:
         """Precompute mouse button SIDs and ideal L2 left-hand positions for
         the mouse accessibility reward. MB1/2/3 get strong reward for being
         on L2, left hand, low effort, and grouped together."""
+        import re
         self.mouse_button_sids = {}  # maps mb number to sid
         for s in self.pool:
-            if 'select:mb' in s.keys:
-                mb_num = s.keys.replace('_base_select:mb', '')
+            mb_match = re.search(r"select:mb([1-5])", s.keys.lower())
+            if mb_match:
+                mb_num = mb_match.group(1)
                 self.mouse_button_sids[mb_num] = s.sid
+        self.mouse_button_required_sids = set(self.mouse_button_sids.values())
         self.l2_left_low_effort = []
         for i, p in enumerate(self.positions):
             if p.layer == 2 and p.hand == "left" and p.effort <= 3:
@@ -524,18 +586,85 @@ class FitnessEvaluator:
                 self.toggled_layer_extra[i] = 1.0  # +1.0 on top of existing effort
 
     def _build_toggled_base_requirement(self):
-        """Precompute: for each toggled layer, which positions exist and
+        """Precompute: for each exit-required layer, which positions exist and
         which SIDs are coach_base/coach_recover_base (return-to-L0 keys)."""
         self.toggled_layer_indices = {}
         self.coach_base_sids = set()
         for s in self.pool:
-            if s.keys in ('_base_coach_base', '_base_coach_recover_base'):
+            if s.keys in ('_base_coach_base', '_base_coach_recover_base', '_base_coach_travel_off'):
                 self.coach_base_sids.add(s.sid)
-        for layer in self.toggled_layers:
+        for layer in self.exit_required_layers:
             indices = [i for i, p in enumerate(self.positions)
                        if p.layer == layer]
             if indices:
                 self.toggled_layer_indices[layer] = indices
+
+    def _build_structural_capability_data(self):
+        """Capability target/mode arrays used for structural duplicate scoring."""
+        from layer_access import shortcut_capability
+        S = self.n_shortcuts
+        self.struct_cap_target_arr = np.full(S + 1, -1, dtype=np.int32)
+        self.struct_cap_mode_arr = np.full(S + 1, -1, dtype=np.int32)
+        self.struct_cap_mode_ids = {}
+        probe_pos = self.positions[0] if self.positions else Position(
+            gene_idx=0, layer=0, x=0, y=0, coord="0:0",
+            effort=0.0, hand="left", finger="pinky", is_thumb=False,
+        )
+        for s in self.pool:
+            cap = shortcut_capability(s, probe_pos)
+            if not cap:
+                continue
+            mode_id = self.struct_cap_mode_ids.setdefault(cap.mode, len(self.struct_cap_mode_ids))
+            self.struct_cap_target_arr[s.sid] = cap.target
+            self.struct_cap_mode_arr[s.sid] = mode_id
+
+    def _capability_sid_set(self):
+        """SIDs that express layer-access capability and may legitimately repeat."""
+        if hasattr(self, "_cap_sid_set"):
+            return self._cap_sid_set
+        from layer_access import shortcut_capability
+        self._cap_sid_set = set()
+        probe_pos = self.positions[0] if self.positions else Position(
+            gene_idx=0, layer=0, x=0, y=0, coord="0:0",
+            effort=0.0, hand="left", finger="pinky", is_thumb=False,
+        )
+        for s in self.pool:
+            if shortcut_capability(s, probe_pos):
+                self._cap_sid_set.add(s.sid)
+        return self._cap_sid_set
+
+    def _build_frozen_l0_duplicate_data(self):
+        """Precompute frozen L0 SIDs that should not be duplicated elsewhere.
+
+        L0 open positions are configured by shortcut key name. Every other
+        assigned L0 SID is something the user already has in the locked base
+        layout, so using it in any mutable position wastes optimizer capacity.
+        """
+        self.frozen_l0_sids = set()
+        S = self.n_shortcuts
+        self.frozen_l0_sid_arr = np.zeros(S + 1, dtype=np.float32)
+        self.capability_sid_arr = np.zeros(S + 1, dtype=np.float32)
+        self.frozen_l0_source_pos_arr = np.zeros(self.n_positions, dtype=np.float32)
+        capability_sids = self._capability_sid_set()
+        for sid in capability_sids:
+            self.capability_sid_arr[sid] = 1.0
+        if self.current_genome is None:
+            return
+
+        open_l0_keys = set(self.config.get("open_l0_keys", []))
+        for i, sid in enumerate(self.current_genome):
+            if sid < 0 or self.positions[i].layer != 0:
+                continue
+            shortcut = self.pool[int(sid)]
+            if shortcut.keys in open_l0_keys:
+                continue
+            if int(sid) in capability_sids:
+                continue
+            self.frozen_l0_sids.add(int(sid))
+            self.frozen_l0_source_pos_arr[i] = 1.0
+
+        for sid in self.frozen_l0_sids:
+            self.frozen_l0_sid_arr[sid] = 1.0
 
     # Base keys that only make sense on L0 — letters, numbers, basic punctuation.
     # These produce a character when pressed and serve no purpose on layers.
@@ -605,15 +734,23 @@ class FitnessEvaluator:
 
         self.t_effort = torch.tensor(self.effort_arr, device=d)
         self.t_importance = torch.tensor(self.importance_arr, device=d)
+        self.t_raw_importance = torch.tensor(self.raw_importance_arr, device=d)
         self.t_usage_boost = torch.tensor(self.usage_boost, device=d)
         self.t_finger = torch.tensor(self.finger_arr, device=d, dtype=torch.long)
+        finger_ext = np.append(self.finger_arr, -1)
+        self.t_finger_ext = torch.tensor(finger_ext, device=d, dtype=torch.long)
         self.t_hand = torch.tensor(self.hand_arr, device=d, dtype=torch.long)
         self.t_layer = torch.tensor(self.layer_arr, device=d, dtype=torch.long)
+        layer_ext = np.append(self.layer_arr, 0)
+        self.t_layer_ext = torch.tensor(layer_ext, device=d, dtype=torch.long)
         self.t_is_thumb = torch.tensor(self.is_thumb_arr, device=d)
         self.t_x_arr = torch.tensor(self.x_arr, device=d, dtype=torch.long)
         self.t_y_arr = torch.tensor(self.y_arr, device=d, dtype=torch.long)
         self.t_dist_matrix = torch.tensor(self.dist_matrix, device=d)
         self.t_zmk_incompat = torch.tensor(self.zmk_incompat_arr, device=d)
+        self.t_pos_idx = torch.arange(N, device=d)
+        self.t_batch_arange_cache = {}
+        self.gpu_sid_occurrence_slots = int(self.config.get("gpu_sid_occurrence_slots", 24))
 
         # App coherence GPU data: stable primary app ID per shortcut
         unique_apps = sorted(set(self.shortcut_primary_app.values()))
@@ -634,6 +771,11 @@ class FitnessEvaluator:
         for idx in self.l2_protected_positions:
             l2_prot[idx] = 1.0
         self.t_l2_protected = torch.tensor(l2_prot, device=d)
+        layer_type_bonus = np.full(N, 1.5, dtype=np.float32)
+        for i, p in enumerate(self.positions):
+            if p.layer in self.toggled_layers:
+                layer_type_bonus[i] = 2.5
+        self.t_cl_position_weight = torch.tensor(layer_type_bonus, device=d)
 
         # 3-tier shortcut tier multipliers for GPU learning curve
         # tier_mult[sid]: 0.3 for simple L0-accessible, 1.0 for complex L0-accessible, 1.5 for layer-only
@@ -652,6 +794,11 @@ class FitnessEvaluator:
                 complex_base[s.sid] = 1.0
         self.t_complex_base = torch.tensor(complex_base, device=d)
 
+        base_return = np.zeros(S + 1, dtype=np.float32)
+        for sid in self.coach_base_sids:
+            base_return[sid] = 1.0
+        self.t_base_return_sid = torch.tensor(base_return, device=d)
+
         # Complexity discount per shortcut (S+1 sentinel)
         complexity_arr = np.ones(S + 1, dtype=np.float32)
         for s in self.pool:
@@ -667,11 +814,23 @@ class FitnessEvaluator:
 
         # L0-only base keys: letters/numbers that should never appear on non-L0 layers
         self.t_l0_only = torch.tensor(self.l0_only_arr, device=d)
+        self.t_frozen_l0_sid = torch.tensor(self.frozen_l0_sid_arr, device=d)
+        self.t_capability_sid = torch.tensor(self.capability_sid_arr, device=d)
+        self.t_frozen_l0_source_pos = torch.tensor(self.frozen_l0_source_pos_arr, device=d)
+        self.t_struct_cap_target = torch.tensor(self.struct_cap_target_arr, device=d, dtype=torch.long)
+        self.t_struct_cap_mode = torch.tensor(self.struct_cap_mode_arr, device=d, dtype=torch.long)
+        mouse_related = np.zeros(S + 1, dtype=np.float32)
+        for s in self.pool:
+            if (s.app in ("windows",) and
+                any(kw in s.action.lower() for kw in ("click", "scroll", "mouse", "drag", "snap", "move"))):
+                mouse_related[s.sid] = 1.0
+        self.t_mouse_related = torch.tensor(mouse_related, device=d)
 
         # Layer switch cost matrix and layer utilization
         self.t_layer_switch_cost = torch.tensor(self.layer_switch_cost_matrix, device=d)
         self.t_layer_util = torch.tensor(self.layer_util_arr, device=d)
         self.t_layer_usage_mult = torch.tensor(self.layer_usage_mult, device=d)
+        self.t_shortcut_app_demand = torch.tensor(self.shortcut_app_demand, device=d)
 
         # Conjunction pair tensors
         if len(self.conj_pairs) > 0:
@@ -692,6 +851,79 @@ class FitnessEvaluator:
                     hand_bonus[i, j] = 0.3
         self.t_hand_bonus = torch.tensor(hand_bonus, device=d)
         self.t_adj_matrix = self.t_prox_matrix + self.t_hand_bonus  # (N, N)
+        self.t_adj_ext = torch.zeros(N + 1, N + 1, device=d)
+        self.t_adj_ext[:N, :N] = self.t_adj_matrix
+        group_neighbor = np.zeros((N, N), dtype=np.float32)
+        group_manhattan = np.zeros((N, N), dtype=np.float32)
+        for i in range(N):
+            for j in range(N):
+                if i == j:
+                    continue
+                manhattan = abs(self.x_arr[i] - self.x_arr[j]) + abs(self.y_arr[i] - self.y_arr[j])
+                group_manhattan[i, j] = manhattan
+                if (self.layer_arr[i] == self.layer_arr[j] and
+                    self.hand_arr[i] == self.hand_arr[j] and
+                    abs(self.x_arr[i] - self.x_arr[j]) <= 1 and
+                    abs(self.y_arr[i] - self.y_arr[j]) <= 1):
+                    group_neighbor[i, j] = 1.0
+        self.t_group_neighbor = torch.tensor(group_neighbor, device=d)
+        self.t_group_manhattan = torch.tensor(group_manhattan, device=d)
+        self.t_upper_tri = torch.triu(torch.ones(N, N, device=d, dtype=torch.bool), diagonal=1)
+
+        if self.current_genome is not None:
+            cur = np.array(self.current_genome, dtype=np.int64)
+            cur_sentinel = cur.copy()
+            cur_sentinel[cur_sentinel < 0] = S
+            self.t_current_genome = torch.tensor(cur, device=d, dtype=torch.long)
+            self.t_current_sids = torch.tensor(cur_sentinel, device=d, dtype=torch.long)
+            self.t_current_assigned = self.t_current_genome >= 0
+            self.t_current_count = self.t_current_assigned.sum().float()
+        else:
+            self.t_current_genome = None
+            self.t_current_sids = None
+            self.t_current_assigned = None
+            self.t_current_count = None
+
+        self.t_very_high_imp_sids = torch.tensor(
+            [s.sid for s in self.pool if s.importance >= 9.0], device=d, dtype=torch.long
+        )
+        self.t_high_imp_sids = torch.tensor(
+            [s.sid for s in self.pool if 3.0 <= s.importance < 9.0], device=d, dtype=torch.long
+        )
+        self.t_med_imp_sids = torch.tensor(
+            [s.sid for s in self.pool if 1.0 <= s.importance < 3.0], device=d, dtype=torch.long
+        )
+        self.t_base_accessible_sids = torch.tensor(
+            sorted(self.base_accessible_sids), device=d, dtype=torch.long
+        )
+        self.t_coach_base_sids = torch.tensor(
+            sorted(self.coach_base_sids), device=d, dtype=torch.long
+        )
+        self.t_clipboard_sids = {
+            clip_key: torch.tensor([s.sid for s in self.pool if s.keys == clip_key], device=d, dtype=torch.long)
+            for clip_key in ['Ctrl+C', 'Ctrl+V', 'Ctrl+Z', 'Ctrl+X']
+        }
+        self.t_nav_utility_sids = torch.tensor(
+            [s.sid for s in self.pool if s.keys in {'Ctrl+A', 'Ctrl+W', 'Ctrl+Y', 'Escape', 'Enter', 'Tab', 'Delete'}],
+            device=d,
+            dtype=torch.long,
+        )
+        self.t_critical_mb_sids = torch.tensor(
+            [
+                self.mouse_button_sids[mb_num]
+                for mb_num in ('1', '2', '3')
+                if self.mouse_button_sids.get(mb_num) is not None
+            ],
+            device=d,
+            dtype=torch.long,
+        )
+        self.t_all_mouse_button_sids = torch.tensor(
+            sorted(self.mouse_button_required_sids), device=d, dtype=torch.long
+        )
+        self.t_toggled_layer_indices = {
+            layer: torch.tensor(layer_idxs, device=d, dtype=torch.long)
+            for layer, layer_idxs in self.toggled_layer_indices.items()
+        }
 
         # One-hot encoding: onehot[sid, pos] = positions where sid could appear
         # For batch: genome_onehot[batch, sid, pos] built at eval time
@@ -703,14 +935,25 @@ class FitnessEvaluator:
         for l in self.unique_layers:
             layer_masks[l] = torch.tensor(self.layer_arr == l, device=d, dtype=torch.bool)
         self.t_layer_masks = layer_masks
+        self.t_momentary_mask = torch.zeros(N, device=d, dtype=torch.bool)
+        for l in self.momentary_layers:
+            if l in layer_masks:
+                self.t_momentary_mask |= layer_masks[l]
+        self.t_pure_momentary_mask = torch.zeros(N, device=d, dtype=torch.bool)
+        for l in self.pure_momentary_layers:
+            if l in layer_masks:
+                self.t_pure_momentary_mask |= layer_masks[l]
 
         # Original duplicate exemption per (layer, sid)
         self.t_original_dupe_counts = {}
         for (layer, sid), cnt in self.original_layer_sid_counts.items():
             self.t_original_dupe_counts[(layer, sid)] = cnt
 
-        # Precompute group SIDs for GPU group-split and placement checking
+        # Precompute group SIDs for GPU group-split and placement checking.
+        # Group split uses all declared groups; placement reward mirrors CPU and
+        # uses only protected static groups plus dynamic groups.
         self._gpu_group_sids = []
+        self._gpu_placement_group_sids = []
         for group in list(KEY_GROUPS) + self.dynamic_groups:
             if "behaviors" in group:
                 continue
@@ -730,29 +973,74 @@ class FitnessEvaluator:
                 expected_size = len(group.get("params", []))
             if len(group_sids) >= 2:
                 is_spatial = group.get("name", "") in ("arrows",)
-                self._gpu_group_sids.append(
-                    (
-                        torch.tensor(group_sids, device=d, dtype=torch.long),
-                        is_spatial,
-                        float(group.get("weight", 1.0)),
-                        float(expected_size),
-                    )
+                item = (
+                    torch.tensor(group_sids, device=d, dtype=torch.long),
+                    is_spatial,
+                    float(group.get("weight", 1.0)),
+                    float(expected_size),
                 )
+                self._gpu_group_sids.append(item)
+                if group.get("protected") or group.get("dynamic", False):
+                    self._gpu_placement_group_sids.append(item)
 
     @torch.no_grad()
-    def evaluate_batch_gpu(self, genomes_list):
-        """Evaluate entire population on GPU. Returns list of (effort, -adj, viol)."""
-        B = len(genomes_list)
+    def _sid_position_slots_gpu(self, t_g):
+        """Return (positions, counts) where positions[b, sid, k] stores up to K
+        placements for each SID. Uses extra VRAM to keep adjacency exact for
+        duplicated shortcuts without constructing a B x S x N one-hot tensor."""
+        B, N = t_g.shape
+        S = self.n_shortcuts
+        K = self.gpu_sid_occurrence_slots
+        d = self.device
+        counts = torch.zeros(B, S + 1, device=d, dtype=torch.long)
+        slots = torch.full((B, S + 1, K), N, device=d, dtype=torch.long)
+        batch_idx = self.t_batch_arange_cache.get(B)
+        if batch_idx is None:
+            batch_idx = torch.arange(B, device=d, dtype=torch.long)
+            self.t_batch_arange_cache[B] = batch_idx
+        flat = slots.view(-1)
+        for pos in range(N):
+            sid = t_g[:, pos]
+            occ = counts.gather(1, sid.unsqueeze(1)).squeeze(1)
+            valid = (sid < S) & (occ < K)
+            if valid.any():
+                offsets = ((batch_idx[valid] * (S + 1) + sid[valid]) * K + occ[valid])
+                flat[offsets] = pos
+            counts.scatter_add_(1, sid.unsqueeze(1), torch.ones(B, 1, device=d, dtype=torch.long))
+        slots[:, S, :] = N
+        counts[:, S] = 0
+        return slots, counts
+
+    @torch.no_grad()
+    def evaluate_batch_gpu(self, genomes_list, prebuilt_np=None):
+        """Evaluate entire population on GPU. Returns list of (effort, -adj, viol).
+
+        If prebuilt_np is provided (int32 ndarray, -1 for empty), skips the
+        expensive list-of-lists → numpy conversion."""
+        if prebuilt_np is not None:
+            B = prebuilt_np.shape[0]
+        else:
+            B = len(genomes_list)
         N = self.n_positions
         S = self.n_shortcuts
         d = self.device
 
-        # Convert genomes: -1 → S (sentinel for empty)
-        g_np = np.array(genomes_list, dtype=np.int64)
+        # Convert genomes: -1 → S (sentinel for empty), stale SIDs → S for
+        # safe tensor indexing. Rows with stale SIDs are hard-invalidated below.
+        if prebuilt_np is not None:
+            raw_np = prebuilt_np.astype(np.int64)
+        else:
+            raw_np = np.array(genomes_list, dtype=np.int64)
+        invalid_sid_rows = ((raw_np < -1) | (raw_np >= S)).any(axis=1)
+        g_np = raw_np.copy()
         g_np[g_np < 0] = S
+        g_np[g_np > S] = S
         t_g = torch.tensor(g_np, device=d, dtype=torch.long)  # (B, N)
         assigned = (t_g < S)  # (B, N) bool
         assigned_f = assigned.float()
+        sid_slots = sid_counts = None
+        if self.exact_gpu_scoring:
+            sid_slots, sid_counts = self._sid_position_slots_gpu(t_g)
 
         # ── EFFORT ──
         imp = self.t_importance[t_g]        # (B, N)
@@ -766,12 +1054,10 @@ class FitnessEvaluator:
         weighted = eff_scaled * imp * usage * layer_mult * layer_util * assigned_f
         effort_raw = weighted.sum(dim=1) * self.weights.get("effort", 1.0)
 
-        # Finger balance: load per finger, variance
+        # Finger balance: load per finger via scatter_add
         finger_ids = self.t_finger.unsqueeze(0).expand(B, -1)  # (B, N)
         finger_loads = torch.zeros(B, self.n_fingers_unique, device=d)
-        for f in range(self.n_fingers_unique):
-            mask = (finger_ids == f) & assigned  # (B, N)
-            finger_loads[:, f] = (imp * mask.float()).sum(dim=1)
+        finger_loads.scatter_add_(1, finger_ids, imp * assigned_f)
         fb_mean = finger_loads.mean(dim=1, keepdim=True)
         finger_balance = ((finger_loads - fb_mean) ** 2).mean(dim=1).sqrt() * self.weights.get("finger_balance", 0.8)
 
@@ -779,58 +1065,70 @@ class FitnessEvaluator:
         # are placed on the same finger. Use sid->position lookup table.
         sfp = torch.zeros(B, device=d)
         if len(self.conj_pairs) > 0:
-            # Build sid-to-finger lookup: for each genome, what finger is each sid on?
-            # sid_finger[b, sid] = finger_id if sid is placed, else -1
-            sid_finger = torch.full((B, S + 1), -1, device=d, dtype=torch.long)
-            # Scatter: for each position n with genome[b,n]=sid, set sid_finger[b,sid]=finger[n]
-            finger_expanded = self.t_finger.unsqueeze(0).expand(B, -1)  # (B, N)
-            # Only write for assigned positions
-            sid_finger.scatter_(1, t_g, finger_expanded)
-            # Sentinel positions get -1
-            sid_finger[:, S] = -1
-
-            CHUNK = 500
-            for start in range(0, len(self.conj_pairs), CHUNK):
-                end = min(start + CHUNK, len(self.conj_pairs))
-                ca = self.t_conj_sid_a[start:end]
-                cb = self.t_conj_sid_b[start:end]
-                cw = self.t_conj_weight[start:end]
-                # Gather fingers for sid_a and sid_b: (B, C)
-                fa = sid_finger.gather(1, ca.unsqueeze(0).expand(B, -1))
-                fb = sid_finger.gather(1, cb.unsqueeze(0).expand(B, -1))
-                same = ((fa == fb) & (fa >= 0)).float()  # (B, C)
-                sfp += (same * cw.unsqueeze(0) * 0.5).sum(dim=1)
+            if self.exact_gpu_scoring:
+                CHUNK = 500
+                for start in range(0, len(self.conj_pairs), CHUNK):
+                    end = min(start + CHUNK, len(self.conj_pairs))
+                    ca = self.t_conj_sid_a[start:end]
+                    cb = self.t_conj_sid_b[start:end]
+                    cw = self.t_conj_weight[start:end]
+                    pa = sid_slots[:, ca, :]
+                    pb = sid_slots[:, cb, :]
+                    pair_valid = (pa < N).unsqueeze(3) & (pb < N).unsqueeze(2)
+                    fa = self.t_finger_ext[pa].unsqueeze(3)
+                    fb = self.t_finger_ext[pb].unsqueeze(2)
+                    la = self.t_layer_ext[pa].unsqueeze(3)
+                    lb = self.t_layer_ext[pb].unsqueeze(2)
+                    same = pair_valid & (fa == fb) & (fa >= 0) & (la == lb)
+                    pair_penalty = same.float().sum(dim=(2, 3)) * cw.unsqueeze(0) * 0.5
+                    sfp += pair_penalty.sum(dim=1)
+            else:
+                sid_finger = torch.full((B, S + 1), -1, device=d, dtype=torch.long)
+                sid_layer = torch.full((B, S + 1), -1, device=d, dtype=torch.long)
+                sid_finger.scatter_(1, t_g, self.t_finger.unsqueeze(0).expand(B, -1))
+                sid_layer.scatter_(1, t_g, self.t_layer.unsqueeze(0).expand(B, -1))
+                sid_finger[:, S] = -1
+                sid_layer[:, S] = -1
+                CHUNK = 500
+                for start in range(0, len(self.conj_pairs), CHUNK):
+                    end = min(start + CHUNK, len(self.conj_pairs))
+                    ca = self.t_conj_sid_a[start:end]
+                    cb = self.t_conj_sid_b[start:end]
+                    cw = self.t_conj_weight[start:end]
+                    fa = sid_finger.gather(1, ca.unsqueeze(0).expand(B, -1))
+                    fb = sid_finger.gather(1, cb.unsqueeze(0).expand(B, -1))
+                    la = sid_layer.gather(1, ca.unsqueeze(0).expand(B, -1))
+                    lb = sid_layer.gather(1, cb.unsqueeze(0).expand(B, -1))
+                    same = ((fa == fb) & (fa >= 0) & (la == lb) & (la >= 0)).float()
+                    sfp += (same * cw.unsqueeze(0) * 0.5).sum(dim=1)
 
         sfp *= self.weights.get("same_finger_penalty", 2.0)
 
         # Hard floor: penalize genomes that removed too many assignments
         unassign_effort = torch.zeros(B, device=d)
-        if self.current_genome is not None:
-            cur_t_e = torch.tensor(self.current_genome, device=d, dtype=torch.long)
-            cur_count = (cur_t_e >= 0).sum().float()
+        if self.t_current_genome is not None:
+            cur_t_e = self.t_current_genome
+            cur_count = self.t_current_count
             now_count = assigned.sum(dim=1).float()
             min_ratio = 0.85
             below_floor = (now_count < cur_count * min_ratio).float()
             # Catastrophic penalty for going below floor
             unassign_effort += below_floor * 50000.0
             # Proportional penalty folded into effort for any removal
-            cur_assigned_e = (cur_t_e >= 0)
+            cur_assigned_e = self.t_current_assigned
             now_empty_e = ~assigned
             removed_e = cur_assigned_e.unsqueeze(0) & now_empty_e
-            cur_sids_e = cur_t_e.clone()
-            cur_sids_e[cur_sids_e < 0] = S
-            cur_imp_e = self.t_importance[cur_sids_e]
+            cur_imp_e = self.t_importance[self.t_current_sids]
             unassign_effort += (removed_e.float() * (2.0 + cur_imp_e.unsqueeze(0).pow(2) * 1.0)).sum(dim=1)
 
         # Learning curve: penalize changes from current layout
         lc = torch.zeros(B, device=d)
-        if self.current_genome is not None:
-            cur_t_lc = torch.tensor(self.current_genome, device=d, dtype=torch.long)
-            cur_sids_lc = cur_t_lc.clone()
-            cur_sids_lc[cur_sids_lc < 0] = S
+        if self.t_current_genome is not None:
+            cur_t_lc = self.t_current_genome
+            cur_sids_lc = self.t_current_sids
             cur_imp_lc = self.t_importance[cur_sids_lc]  # (N,)
             changed = (t_g != cur_t_lc.unsqueeze(0))  # (B, N)
-            cur_had = (cur_t_lc >= 0).unsqueeze(0)  # (1, N)
+            cur_had = self.t_current_assigned.unsqueeze(0)  # (1, N)
             now_has = assigned  # (B, N)
             # Swaps: both had and have something, but different
             swapped = changed & cur_had & now_has  # (B, N)
@@ -850,19 +1148,33 @@ class FitnessEvaluator:
             swap_cost *= (1.0 - base_on_layer * 0.5)  # multiply by 0.5 where base_on_layer
             # Nearby displacement discount: if old sid moved to nearby same-layer pos, 80% off
             # Skip L0 (touch typing muscle memory) and L2 protected positions (mouse buttons)
-            sid_pos_lc = torch.full((B, S + 1), N, device=d, dtype=torch.long)
-            pos_idx = torch.arange(N, device=d).unsqueeze(0).expand(B, -1)
-            sid_pos_lc.scatter_(1, t_g, pos_idx)
+            pos_idx = self.t_pos_idx.unsqueeze(0).expand(B, -1)
             old_sids_exp = cur_sids_lc.unsqueeze(0).expand(B, -1).long()  # (B, N)
-            new_pos_of_old = sid_pos_lc.gather(1, old_sids_exp)  # (B, N)
-            new_pos_clamp = new_pos_of_old.clamp(max=N-1)
-            same_layer_near = (self.t_layer[new_pos_clamp] == self.t_layer.unsqueeze(0)) & (new_pos_of_old < N)
-            manhattan = (self.t_x_arr[new_pos_clamp] - self.t_x_arr.unsqueeze(0)).abs() + \
-                        (self.t_y_arr[new_pos_clamp] - self.t_y_arr.unsqueeze(0)).abs()
-            not_self = (new_pos_of_old != pos_idx)
+            if self.exact_gpu_scoring:
+                new_slots_of_old = sid_slots.gather(
+                    1,
+                    old_sids_exp.unsqueeze(2).expand(-1, -1, self.gpu_sid_occurrence_slots),
+                )  # (B, N, K)
+                slot_valid = new_slots_of_old < N
+                new_pos_clamp = new_slots_of_old.clamp(max=N-1)
+                same_layer_slots = (self.t_layer[new_pos_clamp] == self.t_layer.unsqueeze(0).unsqueeze(2)) & slot_valid
+                manhattan = (self.t_x_arr[new_pos_clamp] - self.t_x_arr.unsqueeze(0).unsqueeze(2)).abs() + \
+                            (self.t_y_arr[new_pos_clamp] - self.t_y_arr.unsqueeze(0).unsqueeze(2)).abs()
+                not_self = (new_slots_of_old != pos_idx.unsqueeze(2))
+                nearby_any = (same_layer_slots & (manhattan <= 3) & not_self).any(dim=2)
+            else:
+                sid_pos_lc = torch.full((B, S + 1), N, device=d, dtype=torch.long)
+                sid_pos_lc.scatter_(1, t_g, pos_idx)
+                new_pos_of_old = sid_pos_lc.gather(1, old_sids_exp)
+                new_pos_clamp = new_pos_of_old.clamp(max=N-1)
+                same_layer_near = (self.t_layer[new_pos_clamp] == self.t_layer.unsqueeze(0)) & (new_pos_of_old < N)
+                manhattan = (self.t_x_arr[new_pos_clamp] - self.t_x_arr.unsqueeze(0)).abs() + \
+                            (self.t_y_arr[new_pos_clamp] - self.t_y_arr.unsqueeze(0)).abs()
+                not_self = (new_pos_of_old != pos_idx)
+                nearby_any = same_layer_near & (manhattan <= 3) & not_self
             not_l0 = (~is_l0).float()  # (1, N)
             not_l2_prot = (1.0 - self.t_l2_protected.unsqueeze(0))  # (1, N)
-            nearby_discount = (same_layer_near & (manhattan <= 3) & not_self & swapped).float()
+            nearby_discount = (nearby_any & swapped).float()
             nearby_discount *= not_l0 * not_l2_prot
             swap_cost *= (1.0 - nearby_discount * 0.8)  # multiply by 0.2 where nearby
             # Removals: had something, now empty
@@ -879,51 +1191,75 @@ class FitnessEvaluator:
         layer_for_pos = self.t_layer.unsqueeze(0).expand(B, -1)
         layer_usage_for_pos = self.t_layer_usage_mult[t_g, layer_for_pos]
         placement_reward = (imp * assigned_f * 8.0 * layer_usage_for_pos).sum(dim=1)
-        effort_total = effort_raw + finger_balance + sfp + unassign_effort + lc - placement_reward
+        position_waste = (
+            (4.0 - imp).clamp(min=0) *
+            (2.0 - self.t_effort.unsqueeze(0)).clamp(min=0) *
+            float(self.weights.get("position_waste", 2.0)) *
+            assigned_f
+        ).sum(dim=1)
+        effort_total = effort_raw + position_waste + finger_balance + sfp + unassign_effort + lc - placement_reward
 
         # ── ADJACENCY ──
         # For each conjunction pair (a,b,w): look up where a and b are placed,
         # then index into the adjacency matrix. Uses sid->position lookup.
         adj_scores = torch.zeros(B, device=d)
         if len(self.conj_pairs) > 0:
-            # Build sid-to-position lookup: sid_pos[b, sid] = position index (or N as sentinel)
-            sid_pos = torch.full((B, S + 1), N, device=d, dtype=torch.long)
-            pos_indices = torch.arange(N, device=d).unsqueeze(0).expand(B, -1)
-            sid_pos.scatter_(1, t_g, pos_indices)
-            sid_pos[:, S] = N  # sentinel
+            if self.exact_gpu_scoring:
+                CHUNK = int(self.config.get("gpu_adjacency_chunk", 32))
+                for start in range(0, len(self.conj_pairs), CHUNK):
+                    end = min(start + CHUNK, len(self.conj_pairs))
+                    ca = self.t_conj_sid_a[start:end]
+                    cb = self.t_conj_sid_b[start:end]
+                    cw = self.t_conj_weight[start:end]
+                    pa = sid_slots[:, ca, :]  # (B, C, K)
+                    pb = sid_slots[:, cb, :]  # (B, C, K)
+                    pair_valid = (pa < N).unsqueeze(3) & (pb < N).unsqueeze(2)
+                    adj_pair_vals = self.t_adj_ext[
+                        pa.unsqueeze(3).expand(-1, -1, -1, pb.shape[2]),
+                        pb.unsqueeze(2).expand(-1, -1, pa.shape[2], -1),
+                    ]
+                    adj_pair_vals = torch.where(pair_valid, adj_pair_vals, torch.zeros_like(adj_pair_vals))
+                    adj_vals = adj_pair_vals.amax(dim=(2, 3))  # CPU best_prox
 
-            # Extend adj_matrix with a zero row/col for sentinel position N
-            adj_ext = torch.zeros(N + 1, N + 1, device=d)
-            adj_ext[:N, :N] = self.t_adj_matrix
+                    layer_switch_w = self.weights.get("layer_switch_penalty", 0.5)
+                    if layer_switch_w > 0:
+                        la = self.t_layer_ext[pa].unsqueeze(3).expand(-1, -1, -1, pb.shape[2])
+                        lb = self.t_layer_ext[pb].unsqueeze(2).expand(-1, -1, pa.shape[2], -1)
+                        switch_pair = self.t_layer_switch_cost[la, lb]
+                        switch_pair = torch.where(
+                            pair_valid,
+                            switch_pair,
+                            torch.full_like(switch_pair, 1_000_000.0),
+                        )
+                        min_switch = switch_pair.amin(dim=(2, 3))
+                        both_placed = (sid_counts[:, ca] > 0) & (sid_counts[:, cb] > 0)
+                        switch_penalty = (adj_vals == 0) & both_placed
+                        adj_vals = adj_vals - switch_penalty.float() * min_switch * layer_switch_w
 
-            CHUNK = 500
-            for start in range(0, len(self.conj_pairs), CHUNK):
-                end = min(start + CHUNK, len(self.conj_pairs))
-                ca = self.t_conj_sid_a[start:end]
-                cb = self.t_conj_sid_b[start:end]
-                cw = self.t_conj_weight[start:end]
-                # Position of sid_a and sid_b in each genome: (B, C)
-                pa = sid_pos.gather(1, ca.unsqueeze(0).expand(B, -1))
-                pb = sid_pos.gather(1, cb.unsqueeze(0).expand(B, -1))
-                # Look up adjacency score: adj_ext[pa, pb] for each (b, c)
-                flat_a = pa.reshape(-1)
-                flat_b = pb.reshape(-1)
-                adj_vals = adj_ext[flat_a, flat_b].reshape(B, -1)  # (B, C)
-                adj_scores += (adj_vals * cw.unsqueeze(0)).sum(dim=1)
+                    adj_scores += (adj_vals * cw.unsqueeze(0)).sum(dim=1)
+            else:
+                sid_pos = torch.full((B, S + 1), N, device=d, dtype=torch.long)
+                sid_pos.scatter_(1, t_g, self.t_pos_idx.unsqueeze(0).expand(B, -1))
+                sid_pos[:, S] = N
+                CHUNK = 500
+                for start in range(0, len(self.conj_pairs), CHUNK):
+                    end = min(start + CHUNK, len(self.conj_pairs))
+                    ca = self.t_conj_sid_a[start:end]
+                    cb = self.t_conj_sid_b[start:end]
+                    cw = self.t_conj_weight[start:end]
+                    pa = sid_pos.gather(1, ca.unsqueeze(0).expand(B, -1))
+                    pb = sid_pos.gather(1, cb.unsqueeze(0).expand(B, -1))
+                    adj_vals = self.t_adj_ext[pa.reshape(-1), pb.reshape(-1)].reshape(B, -1)
 
-                # Layer-switch penalty for cross-layer conjunction pairs
-                layer_switch_w = self.weights.get("layer_switch_penalty", 0.5)
-                if layer_switch_w > 0:
-                    # Clamp positions to valid range for layer lookup
-                    pa_clamp = pa.clamp(max=N-1)
-                    pb_clamp = pb.clamp(max=N-1)
-                    la = self.t_layer[pa_clamp.reshape(-1)].reshape(B, -1)  # (B, C)
-                    lb = self.t_layer[pb_clamp.reshape(-1)].reshape(B, -1)  # (B, C)
-                    switch_cost = self.t_layer_switch_cost[la.reshape(-1), lb.reshape(-1)].reshape(B, -1)
-                    cross_layer = (adj_vals == 0).float()
-                    # Only penalize when both shortcuts are actually placed (not sentinel)
-                    both_placed = ((pa < N) & (pb < N)).float()
-                    adj_scores -= (cross_layer * both_placed * switch_cost * cw.unsqueeze(0) * layer_switch_w).sum(dim=1)
+                    layer_switch_w = self.weights.get("layer_switch_penalty", 0.5)
+                    if layer_switch_w > 0:
+                        la = self.t_layer_ext[pa]
+                        lb = self.t_layer_ext[pb]
+                        switch_cost = self.t_layer_switch_cost[la.reshape(-1), lb.reshape(-1)].reshape(B, -1)
+                        both_placed = ((pa < N) & (pb < N)).float()
+                        adj_vals = adj_vals - ((adj_vals == 0).float() * both_placed * switch_cost * layer_switch_w)
+
+                    adj_scores += (adj_vals * cw.unsqueeze(0)).sum(dim=1)
 
         # Thumb utilization
         thumb_filled = assigned_f * self.t_thumb_filled_w.unsqueeze(0)
@@ -931,46 +1267,59 @@ class FitnessEvaluator:
         thumb_util = thumb_filled.sum(dim=1) + thumb_empty.sum(dim=1)
 
         # Cross-layer consistency: reward same sid at same physical position across layers
+        # Uses scatter_reduce to find min/max coord per SID without per-SID loops
         cl_bonus = torch.zeros(B, device=d)
-        # Build (x,y) per position as a unique coord id
-        coord_ids = self.t_x_arr * 100 + self.t_y_arr  # unique coord per physical position
-        for sid_val in range(S):
-            sid_mask = (t_g == sid_val)  # (B, N)
-            count = sid_mask.sum(dim=1)  # (B,)
-            multi = (count >= 2)
-            if not multi.any():
-                continue
-            # Check if all positions with this sid share the same coord
-            # For each genome, gather coords where sid appears
-            sid_coords = sid_mask.float() * coord_ids.unsqueeze(0).float()  # (B, N)
-            # Unique coords: if all same, variance is 0
-            # Approximate: check if min == max of non-zero coords
-            big_val = 99999.0
-            masked_min = torch.where(sid_mask, sid_coords, torch.tensor(big_val, device=d)).min(dim=1).values
-            masked_max = torch.where(sid_mask, sid_coords, torch.tensor(-1.0, device=d)).max(dim=1).values
-            same_coord = (masked_min == masked_max) & multi
-            cl_bonus += same_coord.float() * count.float() * 2.0
+        coord_ids = self.t_x_arr * 100 + self.t_y_arr
+        safe_g = t_g.clamp(min=0, max=S)
+        coord_f = (coord_ids.unsqueeze(0).float() + 1.0) * assigned_f  # +1 so 0,0 coord != unassigned
+
+        # Per-SID count, min coord, max coord via scatter_reduce
+        sid_count_cl = torch.zeros(B, S + 1, device=d)
+        sid_count_cl.scatter_add_(1, safe_g, assigned_f)
+        sid_coord_min = torch.full((B, S + 1), 99999.0, device=d)
+        sid_coord_min.scatter_reduce_(1, safe_g, torch.where(assigned, coord_f, torch.tensor(99999.0, device=d)), reduce="amin", include_self=True)
+        sid_coord_max = torch.full((B, S + 1), -1.0, device=d)
+        sid_coord_max.scatter_reduce_(1, safe_g, torch.where(assigned, coord_f, torch.tensor(-1.0, device=d)), reduce="amax", include_self=True)
+        # Per-SID max position weight
+        sid_pw = torch.zeros(B, S + 1, device=d)
+        sid_pw.scatter_reduce_(1, safe_g, (self.t_cl_position_weight.unsqueeze(0) * assigned_f), reduce="amax", include_self=True)
+
+        multi = (sid_count_cl[:, :S] >= 2)
+        same_coord = (sid_coord_min[:, :S] == sid_coord_max[:, :S]) & multi
+        # Weight by shortcut importance: high-importance cross-layer consistency
+        # (e.g. Ctrl+C at same position across layers) is much more valuable
+        imp_per_sid = self.t_importance[:S].unsqueeze(0).clamp(min=1.0) * 0.5
+        cl_bonus = (same_coord.float() * sid_count_cl[:, :S] * sid_pw[:, :S] * imp_per_sid).sum(dim=1)
 
         # Trackball proximity (simplified: right-hand mouse layer bonus)
         tb_bonus = torch.zeros(B, device=d)
         mouse_layer_mask = (self.t_layer == 2).unsqueeze(0) & (self.t_hand.unsqueeze(0) == 1) & assigned
         tb_bonus = (mouse_layer_mask.float() * imp * 0.2).sum(dim=1)
+        right_non_l2_mouse = (self.t_hand.unsqueeze(0) == 1) & \
+                             (self.t_layer.unsqueeze(0) != 2) & \
+                             (self.t_y_arr.unsqueeze(0) >= 2) & \
+                             (self.t_mouse_related[t_g] > 0) & assigned
+        tb_bonus += (right_non_l2_mouse.float() * imp * 0.1).sum(dim=1)
 
         # App coherence: reward shortcuts sharing primary app on same layer
         ac_bonus = torch.zeros(B, device=d)
         if hasattr(self, 't_primary_app_id'):
             app_ids_per_pos = self.t_primary_app_id[t_g]  # (B, N)
-            for l in self.unique_layers:
-                if l not in self.t_layer_masks:
-                    continue
-                lmask = self.t_layer_masks[l].unsqueeze(0) & assigned  # (B, N)
-                for app_id in range(self._n_unique_apps):
-                    app_on_layer = lmask & (app_ids_per_pos == app_id)
-                    count = app_on_layer.float().sum(dim=1)  # (B,)
-                    imp_sum = (app_on_layer.float() * imp).sum(dim=1)
-                    has_cluster = (count >= 2).float()
-                    avg_imp = imp_sum / count.clamp(min=1)
-                    ac_bonus += has_cluster * count * avg_imp * 0.3
+            n_apps = self._n_unique_apps
+            # Encode (layer, app) as single index for scatter_add
+            layer_app_idx = self.t_layer.unsqueeze(0) * n_apps + app_ids_per_pos.clamp(min=0)  # (B, N)
+            n_la = len(self.unique_layers) * n_apps + n_apps
+            valid_app = (app_ids_per_pos >= 0) & assigned
+            # Count per (layer, app)
+            la_count = torch.zeros(B, n_la, device=d)
+            la_count.scatter_add_(1, layer_app_idx, valid_app.float())
+            # Importance sum per (layer, app)
+            la_imp = torch.zeros(B, n_la, device=d)
+            la_imp.scatter_add_(1, layer_app_idx, (imp * valid_app.float()))
+            # Reward clusters of 2+
+            has_cluster = (la_count >= 2).float()
+            avg_imp = la_imp / la_count.clamp(min=1)
+            ac_bonus = (has_cluster * la_count * avg_imp * 0.3).sum(dim=1)
 
         # Mouse accessibility: reward functional one-handed mouse mode
         ma_bonus = torch.zeros(B, device=d)
@@ -984,41 +1333,79 @@ class FitnessEvaluator:
         for mb_num, mb_w in mb_weights.items():
             mb_sid = self.mouse_button_sids.get(mb_num)
             if mb_sid is None:
+                if mb_num in ('1', '2', '3'):
+                    ma_bonus -= torch.full((B,), 40.0 * mb_w, device=d)
                 continue
             mb_mask = (t_g == mb_sid) & assigned
             has_any = mb_mask.any(dim=1).float()
             on_l2 = mb_mask & is_l2
             on_l2_left = on_l2 & is_left
+            on_l2_right = on_l2 & ~is_left
 
             if mb_num in ('1', '2', '3'):
                 ma_bonus -= (1.0 - has_any) * 40.0 * mb_w
                 l2_mb_count += on_l2.any(dim=1).float()
                 # Heavy penalty for MB1/2/3 on L2 right hand (can't reach during mouse mode)
-                on_l2_right = on_l2 & ~is_left
                 ma_bonus -= on_l2_right.any(dim=1).float() * 60.0 * mb_w
 
-            # Best-placement reward (approximate: use sum, CPU uses max)
-            ma_bonus += on_l2.float().sum(dim=1) * 8.0 * mb_w
-            ma_bonus += on_l2_left.float().sum(dim=1) * 6.0 * mb_w
-            ma_bonus += (on_l2_left & low_eff).float().sum(dim=1) * 4.0 * mb_w
-            ma_bonus += (on_l2_left & med_eff).float().sum(dim=1) * 2.0 * mb_w
+            # CPU path uses the best placement for each mouse button, not the
+            # sum of all duplicates. Keep the batch signal aligned so duplicate
+            # mouse buttons do not become an accidental reward hack.
+            left_score = (on_l2_left.float() * (14.0 * mb_w) +
+                          (on_l2_left & low_eff).float() * (4.0 * mb_w) +
+                          (on_l2_left & med_eff).float() * (2.0 * mb_w))
+            right_score = on_l2_right.float() * (1.0 * mb_w)
+            best_score = torch.maximum(left_score, right_score).max(dim=1).values
+            ma_bonus += best_score
 
-        ma_bonus += (l2_mb_count >= 3).float() * 15.0
-        ma_bonus += ((l2_mb_count >= 2) & (l2_mb_count < 3)).float() * 5.0
+        if self.exact_gpu_scoring and self.t_critical_mb_sids.numel() > 0:
+            crit_slots = sid_slots[:, self.t_critical_mb_sids, :].reshape(B, -1)
+            crit_valid = crit_slots < N
+            crit_slots_clamped = crit_slots.clamp(max=N - 1)
+            crit_layers = self.t_layer_ext[crit_slots]
+            crit_dist = self.t_group_manhattan[crit_slots_clamped.unsqueeze(2), crit_slots_clamped.unsqueeze(1)]
+            crit_pair_valid = crit_valid.unsqueeze(2) & crit_valid.unsqueeze(1) & \
+                              torch.triu(torch.ones(crit_slots.shape[1], crit_slots.shape[1], device=d, dtype=torch.bool), diagonal=1).unsqueeze(0)
+            for layer_id in self.unique_layers:
+                lm = crit_valid & (crit_layers == layer_id)
+                n_layer = lm.sum(dim=1).float()
+                ma_bonus += (n_layer >= 3).float() * 15.0
+                ma_bonus += ((n_layer >= 2) & (n_layer < 3)).float() * 5.0
+                pair_mask = lm.unsqueeze(2) & lm.unsqueeze(1) & crit_pair_valid
+                close2 = pair_mask & (crit_dist <= 2)
+                close3 = pair_mask & (crit_dist > 2) & (crit_dist <= 3)
+                ma_bonus += close2.sum(dim=(1, 2)).float() * 4.0
+                ma_bonus += close3.sum(dim=(1, 2)).float() * 2.0
+        elif not self.exact_gpu_scoring:
+            ma_bonus += (l2_mb_count >= 3).float() * 15.0
+            ma_bonus += ((l2_mb_count >= 2) & (l2_mb_count < 3)).float() * 5.0
 
         l2_left_filled = (assigned & is_l2 & is_left).float().sum(dim=1)
         ma_bonus += l2_left_filled.clamp(max=15) * 1.5
 
         for clip_key in ['Ctrl+C', 'Ctrl+V', 'Ctrl+Z', 'Ctrl+X']:
-            clip_sids = [s.sid for s in self.pool if s.keys == clip_key]
-            if clip_sids:
+            clip_sids = self.t_clipboard_sids.get(clip_key)
+            if clip_sids is not None and clip_sids.numel() > 0:
                 clip_mask = (t_g == clip_sids[0]) & assigned & is_l2 & is_left
                 ma_bonus += clip_mask.any(dim=1).float() * 6.0
 
+        clipboard_keys = [self.t_clipboard_sids[k][0] for k in ['Ctrl+C', 'Ctrl+V', 'Ctrl+Z', 'Ctrl+X']
+                          if self.t_clipboard_sids[k].numel() > 0]
+        if clipboard_keys:
+            clip_t = torch.stack(clipboard_keys)
+            l2_left_sids = t_g.masked_fill(~(assigned & is_l2 & is_left), S)
+            clipboard_present = (l2_left_sids.unsqueeze(2) == clip_t.unsqueeze(0).unsqueeze(0)).any(dim=1)
+            ma_bonus += (clipboard_present.sum(dim=1) >= 3).float() * 8.0
+
+        if self.t_nav_utility_sids.numel() > 0:
+            l2_left_sids = t_g.masked_fill(~(assigned & is_l2 & is_left), S)
+            nav_present = (l2_left_sids.unsqueeze(2) == self.t_nav_utility_sids.unsqueeze(0).unsqueeze(0)).any(dim=1)
+            ma_bonus += nav_present.sum(dim=1).float() * 4.0
+
         # Group placement reward: GPU approximation of _group_placement_score.
         gp_bonus = torch.zeros(B, device=d)
-        if hasattr(self, '_gpu_group_sids') and self._gpu_group_sids:
-            for group_t, _is_spatial, _group_weight, _expected_size in self._gpu_group_sids:
+        if hasattr(self, '_gpu_placement_group_sids') and self._gpu_placement_group_sids:
+            for group_t, _is_spatial, _group_weight, _expected_size in self._gpu_placement_group_sids:
                 member_mask = torch.zeros(B, N, device=d, dtype=torch.bool)
                 for gs in group_t:
                     member_mask |= (t_g == gs.item())
@@ -1073,14 +1460,11 @@ class FitnessEvaluator:
 
         # Unassignment penalty: quadratic importance scaling
         unassign_viol = torch.zeros(B, device=d)
-        if self.current_genome is not None:
-            cur_t = torch.tensor(self.current_genome, device=d, dtype=torch.long)
-            cur_assigned = (cur_t >= 0)
+        if self.t_current_genome is not None:
+            cur_assigned = self.t_current_assigned
             now_empty = ~assigned
             removed = cur_assigned.unsqueeze(0) & now_empty  # (B, N)
-            cur_sids = cur_t.clone()
-            cur_sids[cur_sids < 0] = S
-            cur_imp = self.t_importance[cur_sids]
+            cur_imp = self.t_importance[self.t_current_sids]
             unassign_viol = (removed.float() * (5.0 + cur_imp.unsqueeze(0).pow(2) * 2.0)).sum(dim=1)
 
         # Group-split violations: spatial split + group integrity (partial groups)
@@ -1091,67 +1475,132 @@ class FitnessEvaluator:
                 for gs in group_t:
                     member_mask |= (t_g == gs.item())
                 member_count = member_mask.sum(dim=1).float()
+                has_members = member_count >= 2
+                if not has_members.any():
+                    continue
                 masked_imp = torch.where(member_mask, imp, torch.zeros_like(imp))
                 max_imp = masked_imp.max(dim=1).values
                 imp_scale = torch.maximum(torch.ones_like(max_imp), max_imp / 3.0)
-                if is_spatial:
-                    left_members = (member_mask & (self.t_hand.unsqueeze(0) == 0)).sum(dim=1).float()
-                    right_members = member_count - left_members
-                    both_hands = (left_members > 0) & (right_members > 0)
-                    group_split_viol += both_hands.float() * member_count * 5.0 * group_weight * imp_scale
-                # Group integrity: find best layer cluster, penalize missing members
+
+                if not self.exact_gpu_scoring:
+                    if is_spatial:
+                        left_members = (member_mask & (self.t_hand.unsqueeze(0) == 0)).sum(dim=1).float()
+                        right_members = member_count - left_members
+                        both_hands = (left_members > 0) & (right_members > 0)
+                        group_split_viol += both_hands.float() * member_count * 5.0 * group_weight * imp_scale
+
+                    best_layer_count = torch.zeros(B, device=d)
+                    for layer_id in self.unique_layers:
+                        lm = self.t_layer_masks[layer_id].unsqueeze(0) & member_mask
+                        layer_count = lm.sum(dim=1).float()
+                        best_layer_count = torch.maximum(best_layer_count, layer_count)
+                    missing = (expected_size - best_layer_count).clamp(min=0)
+                    group_split_viol += has_members.float() * missing * missing * 5.0 * group_weight * imp_scale
+                    complete = (best_layer_count >= expected_size).float()
+                    group_split_viol -= complete * expected_size * 3.0 * group_weight
+                    continue
+
+                # Group integrity: find best CPU-equivalent cluster. Spatial
+                # groups cluster by layer+hand; other groups cluster by layer.
                 best_layer_count = torch.zeros(B, device=d)
                 for layer_id in self.unique_layers:
                     lm = self.t_layer_masks[layer_id].unsqueeze(0) & member_mask
                     layer_count = lm.sum(dim=1).float()
-                    best_layer_count = torch.maximum(best_layer_count, layer_count)
-                    has_group = (layer_count >= 2).float()
-                    group_split_viol += has_group * 0.5 * group_weight
-                # Partial group penalty: quadratic for missing members
-                missing = (expected_size - best_layer_count).clamp(min=0)
-                has_partial_group = member_count >= 2
-                group_split_viol += has_partial_group.float() * missing * missing * 5.0 * group_weight * imp_scale
-                # Completeness bonus: all members on same layer
-                complete = (best_layer_count >= expected_size).float()
-                group_split_viol -= complete * expected_size * 3.0 * group_weight
+                    if is_spatial:
+                        for hand_id in (0, 1):
+                            hand_count = (lm & (self.t_hand.unsqueeze(0) == hand_id)).sum(dim=1).float()
+                            best_layer_count = torch.maximum(best_layer_count, hand_count)
+                    else:
+                        best_layer_count = torch.maximum(best_layer_count, layer_count)
 
-        # Missing important shortcuts penalty — all pool shortcuts on mutable layers
-        very_high_imp_sids = [s.sid for s in self.pool if s.importance >= 9.0]
-        high_imp_sids = [s.sid for s in self.pool if 3.0 <= s.importance < 9.0]
-        med_imp_sids = [s.sid for s in self.pool if 1.0 <= s.importance < 3.0]
+                # Partial group penalty: quadratic for missing members.
+                missing = (expected_size - best_layer_count).clamp(min=0)
+                group_split_viol += has_members.float() * missing * missing * 5.0 * group_weight * imp_scale
+
+                for layer_id in self.unique_layers:
+                    lm = self.t_layer_masks[layer_id].unsqueeze(0) & member_mask
+                    layer_count = lm.sum(dim=1).float()
+                    layer_has_group = layer_count >= 2
+                    if not layer_has_group.any():
+                        continue
+                    layer_imp = torch.where(lm, imp, torch.zeros_like(imp)).max(dim=1).values
+                    layer_imp_scale = torch.maximum(torch.ones_like(layer_imp), layer_imp / 3.0)
+
+                    if is_spatial:
+                        left_count = (lm & (self.t_hand.unsqueeze(0) == 0)).sum(dim=1).float()
+                        right_count = layer_count - left_count
+                        both_hands = (left_count > 0) & (right_count > 0)
+                        group_split_viol += both_hands.float() * layer_count * 5.0 * group_weight * layer_imp_scale
+
+                    neighbor_counts = lm.float() @ self.t_group_neighbor
+                    isolated = lm & (neighbor_counts <= 0)
+                    isolated_count = torch.zeros(B, device=d)
+                    for hand_id in (0, 1):
+                        same_hand = lm & (self.t_hand.unsqueeze(0) == hand_id)
+                        hand_count = same_hand.sum(dim=1)
+                        isolated_count += (isolated & same_hand & (hand_count.unsqueeze(1) >= 2)).sum(dim=1).float()
+                    group_split_viol += isolated_count * group_weight * layer_imp_scale
+
+                    same_hand_all = ((lm & (self.t_hand.unsqueeze(0) == 0)).sum(dim=1).eq(layer_count)) | \
+                                    ((lm & (self.t_hand.unsqueeze(0) == 1)).sum(dim=1).eq(layer_count))
+                    exact_size = layer_count.eq(expected_size) & (expected_size >= 2)
+                    pair_dist = torch.where(
+                        lm.unsqueeze(1) & lm.unsqueeze(2),
+                        self.t_group_manhattan.unsqueeze(0),
+                        torch.zeros(1, device=d),
+                    )
+                    max_dist = pair_dist.amax(dim=(1, 2))
+                    complete = exact_size & same_hand_all & (max_dist <= expected_size)
+                    group_split_viol -= complete.float() * expected_size * 3.0 * group_weight
+
+        # Missing important shortcuts penalty — use scatter to check presence
         missing_viol = torch.zeros(B, device=d)
-        if very_high_imp_sids:
-            vh_t = torch.tensor(very_high_imp_sids, device=d, dtype=torch.long)
-            vh_imp = self.t_importance[vh_t]
-            present_vh = (t_g.unsqueeze(2) == vh_t.unsqueeze(0).unsqueeze(0)).any(dim=1)
+        # Build per-SID presence: count > 0 means present
+        safe_g_m = t_g.clamp(min=0, max=S)
+        sid_present = torch.zeros(B, S + 1, device=d, dtype=torch.bool)
+        sid_present.scatter_(1, safe_g_m, assigned)
+        if self.t_very_high_imp_sids.numel() > 0:
+            vh_t = self.t_very_high_imp_sids
+            vh_imp = self.t_raw_importance[vh_t]
+            present_vh = sid_present[:, vh_t]
             missing_viol += ((~present_vh).float() * (vh_imp * vh_imp).unsqueeze(0) * 2.0).sum(dim=1)
-        if high_imp_sids:
-            hi_t = torch.tensor(high_imp_sids, device=d, dtype=torch.long)
-            hi_imp = self.t_importance[hi_t]
-            present = (t_g.unsqueeze(2) == hi_t.unsqueeze(0).unsqueeze(0)).any(dim=1)
-            missing_viol += ((~present).float() * (hi_imp * hi_imp).unsqueeze(0) * 0.5).sum(dim=1)
-        if med_imp_sids:
-            med_t = torch.tensor(med_imp_sids, device=d, dtype=torch.long)
-            med_imp = self.t_importance[med_t]
-            present_m = (t_g.unsqueeze(2) == med_t.unsqueeze(0).unsqueeze(0)).any(dim=1)
+        if self.t_high_imp_sids.numel() > 0:
+            hi_t = self.t_high_imp_sids
+            hi_imp = self.t_raw_importance[hi_t]
+            present_hi = sid_present[:, hi_t]
+            missing_viol += ((~present_hi).float() * (hi_imp * hi_imp).unsqueeze(0) * 0.5).sum(dim=1)
+        if self.t_med_imp_sids.numel() > 0:
+            med_t = self.t_med_imp_sids
+            med_imp = self.t_raw_importance[med_t]
+            present_m = sid_present[:, med_t]
             missing_viol += ((~present_m).float() * med_imp.unsqueeze(0) * 0.5).sum(dim=1)
+        if self.t_all_mouse_button_sids.numel() > 0:
+            mb_t = self.t_all_mouse_button_sids
+            mb_imp = self.t_importance[mb_t].clamp(min=10.0)
+            present_mb = sid_present[:, mb_t]
+            missing_viol += ((~present_mb).float() * mb_imp.unsqueeze(0).pow(2) * 3.0).sum(dim=1)
 
         # Momentary redundancy: penalize base-accessible shortcuts on momentary layers
         # Complexity-aware: 3-key combos get reduced penalty (justified on layers)
         COGNITIVE_SWITCH_COST = 1.5
-        base_sids = torch.tensor(sorted(self.base_accessible_sids), device=d, dtype=torch.long)
-        is_momentary = torch.zeros(N, device=d, dtype=torch.bool)
-        for l in self.momentary_layers:
-            if l in self.t_layer_masks:
-                is_momentary |= self.t_layer_masks[l]
-        is_base_accessible = (t_g.unsqueeze(2) == base_sids.unsqueeze(0).unsqueeze(0)).any(dim=2)
+        base_sids = self.t_base_accessible_sids
+        if base_sids.numel() > 0:
+            is_base_accessible = (t_g.unsqueeze(2) == base_sids.unsqueeze(0).unsqueeze(0)).any(dim=2)
+        else:
+            is_base_accessible = torch.zeros(B, N, device=d, dtype=torch.bool)
         is_complex = (self.t_complex_base[t_g] > 0)  # 3+ key combos: skip redundancy penalty
-        redundant = assigned & is_momentary.unsqueeze(0) & is_base_accessible & ~is_complex
+        redundant = assigned & self.t_momentary_mask.unsqueeze(0) & is_base_accessible & ~is_complex
         eff_over = (self.t_effort.unsqueeze(0) - COGNITIVE_SWITCH_COST).clamp(min=0) * 0.3 + 1.0
         eff_under = torch.full_like(eff_over, 0.5)
         per_pos = torch.where(self.t_effort.unsqueeze(0) >= COGNITIVE_SWITCH_COST, eff_over, eff_under)
         complexity_disc = self.t_complexity_discount[t_g]  # (B, N)
         redundancy_viol = (redundant.float() * per_pos * complexity_disc).sum(dim=1)
+        base_return_on_momentary = (
+            assigned &
+            self.t_pure_momentary_mask.unsqueeze(0) &
+            (self.t_base_return_sid[t_g] > 0)
+        )
+        redundancy_viol += (base_return_on_momentary.float() * (10.0 + imp)).sum(dim=1)
 
         # Cross-layer duplicate: penalize shortcuts on 3+ layers
         # For each unique layer, create a per-sid presence mask, then count layers per sid
@@ -1170,10 +1619,41 @@ class FitnessEvaluator:
                 present = torch.zeros(B, S + 1, device=d)
                 present.scatter_(1, sids_on_layer.clamp(max=S), 1.0)
                 sid_layer_count += present[:, :S]
-            # Penalize sids on 3+ layers — escalating quadratic with waste factor
-            excess = (sid_layer_count - 2).clamp(min=0)  # (B, S)
-            waste_factor = (10.0 - self.t_importance[:S].unsqueeze(0)).clamp(min=1.0)  # (1, S)
-            cross_dupe_viol = (excess.pow(2) * waste_factor).sum(dim=1)
+            sid_layer_count = sid_layer_count * (1.0 - self.t_capability_sid[:S].unsqueeze(0))
+            # Penalize sids on 2+ layers — lighter for 2, escalating for 3+
+            imp_s = self.t_importance[:S].unsqueeze(0)
+            waste_factor = (10.0 - imp_s).clamp(min=1.0)
+            # 2-layer: linear penalty (low-importance dupes waste space)
+            on_two = (sid_layer_count == 2)
+            cross_dupe_viol = (on_two.float() * waste_factor * 0.3).sum(dim=1)
+            # 3+ layers: escalating quadratic
+            excess = (sid_layer_count - 2).clamp(min=0)
+            cross_dupe_viol += (excess.pow(2) * waste_factor).sum(dim=1)
+
+        # Structural duplicate pressure: capability keys are exempt from
+        # ordinary shortcut duplicate penalties, but floods of equivalent
+        # layer switches on the same source layer or to the same target still
+        # waste positions.
+        structural_dupe_viol = torch.zeros(B, device=d)
+        cap_target = self.t_struct_cap_target[t_g]
+        cap_mode = self.t_struct_cap_mode[t_g]
+        target_ids = [int(x) for x in np.unique(self.struct_cap_target_arr[:S]) if int(x) >= 0]
+        mode_ids = [int(x) for x in np.unique(self.struct_cap_mode_arr[:S]) if int(x) >= 0]
+        if target_ids and mode_ids:
+            for layer_id in unique_layers:
+                source_mask = self.t_layer_masks[layer_id].unsqueeze(0) & assigned
+                for target_id in target_ids:
+                    for mode_id in mode_ids:
+                        group_mask = source_mask & (cap_target == target_id) & (cap_mode == mode_id)
+                        count = group_mask.sum(dim=1).float()
+                        excess = (count - 2.0).clamp(min=0.0)
+                        structural_dupe_viol += excess.pow(2) * 10.0
+            for target_id in target_ids:
+                for mode_id in mode_ids:
+                    group_mask = assigned & (cap_target == target_id) & (cap_mode == mode_id)
+                    count = group_mask.sum(dim=1).float()
+                    excess = (count - 3.0).clamp(min=0.0)
+                    structural_dupe_viol += excess.pow(2) * 10.0
 
         # Layer redundancy: penalize pairs where the same app dominates both layers.
         # Mixed layers are allowed; this targets "four VS Code layers" style collapse.
@@ -1215,14 +1695,14 @@ class FitnessEvaluator:
                      group_split_viol * group_split_weight + \
                      redundancy_viol * self.weights.get("momentary_redundancy", 5.0) + \
                      cross_dupe_viol * self.weights.get("cross_layer_duplicate", 8.0) + \
+                     structural_dupe_viol * self.weights.get("structural_duplicate", 10.0) + \
                      layer_redund_viol * self.weights.get("layer_redundancy", 12.0)
 
         # Toggled layer base requirement: penalize toggled layers without coach_base anywhere
         toggled_base_viol = torch.zeros(B, device=d)
-        if self.toggled_layer_indices and self.coach_base_sids:
-            base_sids = torch.tensor(sorted(self.coach_base_sids), device=d, dtype=torch.long)
-            for layer, layer_idxs in self.toggled_layer_indices.items():
-                lidx = torch.tensor(layer_idxs, device=d, dtype=torch.long)
+        if self.toggled_layer_indices and self.t_coach_base_sids.numel() > 0:
+            base_sids = self.t_coach_base_sids
+            for layer, lidx in self.t_toggled_layer_indices.items():
                 layer_sids = t_g[:, lidx]
                 has_base = (layer_sids.unsqueeze(2) == base_sids.unsqueeze(0).unsqueeze(0)).any(dim=2).any(dim=1)
                 toggled_base_viol += (~has_base).float() * 5000.0
@@ -1235,29 +1715,231 @@ class FitnessEvaluator:
         l0_displace_viol = (displaced * (50.0 + imp * 2.0)).sum(dim=1)
         viol_total += l0_displace_viol * self.weights.get("violations", 10.0)
 
-        # Violation-effort coupling: high violations inflate effort
-        effort_total = torch.where(viol_total > 10000, effort_total + viol_total * 0.5, effort_total)
+        # Frozen-L0 duplicates: keys already present in locked L0 should not
+        # occupy any mutable position, including open L0 thumb slots.
+        duplicate_candidate_pos = (1.0 - self.t_frozen_l0_source_pos).unsqueeze(0)
+        frozen_l0_dupes = self.t_frozen_l0_sid[t_g] * assigned_f * duplicate_candidate_pos
+        frozen_l0_dupe_viol = (frozen_l0_dupes * (50.0 + imp * 5.0)).sum(dim=1)
+        viol_total += frozen_l0_dupe_viol * self.weights.get("violations", 10.0)
 
         e = effort_total.cpu().numpy()
         a = adj_total.cpu().numpy()
         v = viol_total.cpu().numpy()
         if self.access_analyzer:
-            for i, genome in enumerate(genomes_list):
-                validation = self.access_analyzer.validate(genome)
-                if not validation.valid:
-                    e[i] = HARD_INVALID_FITNESS
-                    a[i] = 0.0
-                    v[i] = HARD_INVALID_FITNESS
-                else:
-                    e[i] += self._layer_access_effort_penalty(np.array(genome, dtype=np.int32), validation)
-        return [(float(e[i]), float(-a[i]), float(v[i])) for i in range(B)]
+            self._batch_access_penalties(genomes_list, prebuilt_np, t_g, imp, usage, assigned, e, a, v, B, N, S, d)
+        if invalid_sid_rows.any():
+            e[invalid_sid_rows] = HARD_INVALID_FITNESS
+            a[invalid_sid_rows] = 0.0
+            v[invalid_sid_rows] = HARD_INVALID_FITNESS
+        valid_for_coupling = (e < HARD_INVALID_FITNESS) & (v < HARD_INVALID_FITNESS)
+        e = np.where((v > 10000) & valid_for_coupling, e + v * 0.5, e)
+        # Build result list using numpy column stacking for speed
+        result_arr = np.column_stack([e, -a, v])
+        return [tuple(row) for row in result_arr]
+
+    def _batch_access_penalties(self, genomes_list, prebuilt_np, t_g, imp, usage, assigned, e, a, v, B, N, S, d):
+        """Cached layer access validation + fully GPU-vectorized penalties."""
+        if not hasattr(self, '_t_is_cap_sid'):
+            self._init_capability_cache()
+
+        analyzer = self.access_analyzer
+        cache = self._validation_cache
+
+        # Build compact cache keys: only capability placements affect layer
+        # access, so cache the sorted (position, sid) pairs instead of a full
+        # 559-position masked genome.
+        cap_mask_gpu = self._t_is_cap_sid[t_g.clamp(min=0, max=S)]
+        cap_mask_gpu = cap_mask_gpu & (t_g >= 0) & (t_g < S)
+        cap_mask_np = cap_mask_gpu.cpu().numpy()
+        sid_np = t_g.cpu().numpy().astype(np.int16, copy=False)
+        cap_keys = []
+        fixed_fp = self._fixed_capability_fingerprint
+        for row in range(B):
+            pos_idx = np.flatnonzero(cap_mask_np[row]).astype(np.int16, copy=False)
+            if pos_idx.size == 0:
+                cap_keys.append(fixed_fp)
+                continue
+            pairs = np.column_stack((pos_idx, sid_np[row, pos_idx])).astype(np.int16, copy=False)
+            cap_keys.append(fixed_fp + pairs.tobytes())
+
+        # For validate() calls: get genome as list from either source
+        def _get_genome_list(idx):
+            if genomes_list is not None:
+                return genomes_list[idx]
+            row = prebuilt_np[idx]
+            return row.tolist()
+
+        # Validate with cache
+        validations = [None] * B
+        unique_keys = {}
+        hits = 0
+        for i, key in enumerate(cap_keys):
+            if key in cache:
+                validations[i] = cache[key]
+                cache.move_to_end(key)
+                hits += 1
+            elif key in unique_keys:
+                unique_keys[key].append(i)
+            else:
+                unique_keys[key] = [i]
+
+        for key, indices in unique_keys.items():
+            val = analyzer.validate(_get_genome_list(indices[0]))
+            cache[key] = val
+            cache.move_to_end(key)
+            for i in indices:
+                validations[i] = val
+
+        self._last_cache_hits = hits
+        self._last_cache_misses = len(unique_keys)
+
+        self._trim_validation_cache()
+
+        # Build cost/depth matrices
+        n_lm = int(self.layer_arr.max()) + 1
+        invalid_mask = np.zeros(B, dtype=bool)
+        cost_matrix = np.zeros((B, n_lm), dtype=np.float32)
+        depth_matrix = np.full((B, n_lm), 99.0, dtype=np.float32)
+
+        for i, val in enumerate(validations):
+            if not val.valid:
+                invalid_mask[i] = True
+                continue
+            cached_arrays = getattr(val, "_optimizer_arrays", None)
+            if cached_arrays is None:
+                cv = np.zeros(n_lm, dtype=np.float32)
+                dv = np.full(n_lm, 99.0, dtype=np.float32)
+                for layer, c in val.access_costs.items():
+                    if layer < n_lm:
+                        cv[layer] = c
+                depths = val.access_depths or {}
+                for layer, dep in depths.items():
+                    if layer < n_lm:
+                        dv[layer] = dep
+                cached_arrays = (cv, dv)
+                try:
+                    val._optimizer_arrays = cached_arrays
+                except Exception:
+                    pass
+            cost_matrix[i], depth_matrix[i] = cached_arrays
+
+        e[invalid_mask] = HARD_INVALID_FITNESS
+        a[invalid_mask] = 0.0
+        v[invalid_mask] = HARD_INVALID_FITNESS
+
+        valid_mask = ~invalid_mask
+        if not valid_mask.any():
+            return
+
+        t_cost = torch.tensor(cost_matrix, device=d)
+
+        # GPU vectorized access effort: access_cost[layer] * importance * usage
+        lae_w = self.weights.get("layer_access_effort", 1.0)
+        access_cost_per_pos = t_cost[:, self.t_layer]
+        access_effort = (access_cost_per_pos * imp * usage * assigned.float()).sum(dim=1) * lae_w
+        ae_np = access_effort.cpu().numpy()
+        e[valid_mask] += ae_np[valid_mask]
+
+        # GPU vectorized layer demand penalty — single scatter_add, no per-layer loop
+        ld_w = self.weights.get("layer_demand", 2.0)
+        if ld_w > 0:
+            app_demand = self.t_shortcut_app_demand[t_g].clamp(min=0.1)
+            per_pos_score = imp * usage * app_demand * assigned.float()
+            # Zero out L0 positions (CPU skips layer 0)
+            per_pos_score = per_pos_score * (self.t_layer != 0).unsqueeze(0).float()
+            # scatter_add by layer: accumulate per-position scores into per-layer totals
+            layer_idx = self.t_layer.unsqueeze(0).expand(B, -1)
+            layer_demand = torch.zeros(B, n_lm, device=d)
+            layer_demand.scatter_add_(1, layer_idx, per_pos_score)
+
+            # Add session demand
+            if hasattr(self, 'layer_session_counts'):
+                for layer, frac in self.layer_session_counts.items():
+                    if 0 < layer < n_lm:
+                        layer_demand[:, layer] += frac * 50.0
+
+            max_demand = layer_demand.max(dim=1, keepdim=True).values.clamp(min=1.0)
+            layer_demand_norm = layer_demand / max_demand
+
+            t_depth = torch.tensor(depth_matrix, device=d)
+            depth_mult = torch.where(t_depth <= 1, torch.tensor(0.5, device=d),
+                         torch.where(t_depth <= 2, torch.tensor(3.0, device=d),
+                                     torch.tensor(10.0, device=d)))
+
+            required_mask = torch.zeros(n_lm, device=d)
+            if validations[0] is not None and validations[0].valid:
+                for l in validations[0].required_layers:
+                    if l < n_lm:
+                        required_mask[l] = 1.0
+
+            demand_penalty = (layer_demand_norm * t_cost * depth_mult * required_mask.unsqueeze(0)).sum(dim=1) * ld_w
+            dp_np = demand_penalty.cpu().numpy()
+            e[valid_mask] += dp_np[valid_mask]
+
+    def _init_capability_cache(self):
+        """Precompute which SIDs affect layer access."""
+        import torch as _torch
+        from layer_access import shortcut_capability
+        self._cap_sid_set = set()
+        for s in self.pool:
+            for p in self.positions[:1]:
+                cap = shortcut_capability(s, p)
+                if cap:
+                    self._cap_sid_set.add(s.sid)
+                    break
+        self._cap_sid_array = np.array(sorted(self._cap_sid_set), dtype=np.int32)
+        self._validation_cache = OrderedDict()
+        fixed_caps = []
+        if self.access_analyzer is not None:
+            for cap in self.access_analyzer.fixed_capabilities:
+                fixed_caps.append((cap.source, cap.target, cap.mode, cap.coord, cap.fixed))
+        fixed_payload = repr(sorted(fixed_caps)).encode("utf-8")
+        self._fixed_capability_fingerprint = fixed_payload + b"|"
+        # GPU tensor for fast cap-SID membership
+        d = self.device
+        is_cap = _torch.zeros(self.n_shortcuts + 1, dtype=_torch.bool, device=d)
+        for sid in self._cap_sid_set:
+            is_cap[sid] = True
+        self._t_is_cap_sid = is_cap
+        cap_pos = np.zeros(self.n_positions, dtype=bool)
+        if self.current_genome is not None:
+            for i, sid in enumerate(self.current_genome):
+                if sid >= 0 and int(sid) in self._cap_sid_set:
+                    cap_pos[i] = True
+        self._t_cap_pos_idx = _torch.tensor(np.flatnonzero(cap_pos), device=d, dtype=_torch.long)
+
+    def _capability_cache_key_for_genome(self, genome):
+        if not hasattr(self, "_t_is_cap_sid"):
+            self._init_capability_cache()
+        pairs = [
+            (int(i), int(sid))
+            for i, sid in enumerate(genome)
+            if 0 <= int(sid) < self.n_shortcuts and int(sid) in self._cap_sid_set
+        ]
+        if not pairs:
+            return self._fixed_capability_fingerprint
+        arr = np.array(pairs, dtype=np.int16)
+        return self._fixed_capability_fingerprint + arr.tobytes()
+
+    def _trim_validation_cache(self):
+        if not hasattr(self, "_validation_cache"):
+            return
+        max_cache_entries = int(self.config.get("validation_cache_max_entries", 10000))
+        while len(self._validation_cache) > max_cache_entries:
+            self._validation_cache.popitem(last=False)
 
     # =========================================================================
     # SINGLE-GENOME CPU EVALUATION (used for QD, final breakdown)
     # =========================================================================
 
+    def _has_invalid_sids(self, genome):
+        g = np.asarray(genome)
+        return bool(((g < -1) | (g >= self.n_shortcuts)).any())
+
     def evaluate(self, genome):
         genome = np.array(genome, dtype=np.int32)
+        if self._has_invalid_sids(genome):
+            return (HARD_INVALID_FITNESS, 0.0, HARD_INVALID_FITNESS)
         validation = self._layer_access_validation(genome)
         if validation is not None and not validation.valid:
             return (HARD_INVALID_FITNESS, 0.0, HARD_INVALID_FITNESS)
@@ -1270,6 +1952,18 @@ class FitnessEvaluator:
 
     def evaluate_full(self, genome):
         genome = np.array(genome, dtype=np.int32)
+        invalid_sids = self._has_invalid_sids(genome)
+        if invalid_sids:
+            return {
+                "effort": HARD_INVALID_FITNESS,
+                "adjacency": 0.0,
+                "violations": HARD_INVALID_FITNESS,
+                "layer_access_valid": 0.0,
+                "layer_exit_valid": 0.0,
+                "layer_access_cost": HARD_INVALID_FITNESS,
+                "layer_access_errors": "Genome contains stale/out-of-range SID",
+                "sid_valid": 0.0,
+            }
         validation = self._layer_access_validation(genome)
         access_valid = validation.layer_access_valid if validation else 1.0
         exit_valid = validation.layer_exit_valid if validation else 1.0
@@ -1356,6 +2050,8 @@ class FitnessEvaluator:
         return float(penalty * self.weights.get("layer_access_effort", 1.0))
 
     def _effort_score(self, genome):
+        if self._has_invalid_sids(genome):
+            return HARD_INVALID_FITNESS
         validation = self._layer_access_validation(genome)
         if validation is not None and not validation.valid:
             return HARD_INVALID_FITNESS
@@ -1389,11 +2085,23 @@ class FitnessEvaluator:
                 layer = self.positions[i].layer
                 layer_mult = self.layer_usage_mult[sid, layer] if layer < self.layer_usage_mult.shape[1] else 1.0
                 placement_reward += self.importance_arr[sid] * 8.0 * layer_mult
+        position_waste = self._position_waste_penalty(genome)
         access_effort = self._layer_access_effort_penalty(genome, validation)
         demand_penalty = self._layer_demand_penalty(genome, validation)
-        return float(total * w + access_effort + demand_penalty + fb + sfp + lc + unassign_eff - placement_reward)
+        return float(total * w + position_waste + access_effort + demand_penalty + fb + sfp + lc + unassign_eff - placement_reward)
+
+    def _position_waste_penalty(self, genome):
+        penalty = 0.0
+        for i, sid in enumerate(genome):
+            if sid >= 0:
+                penalty += max(0.0, 4.0 - self.importance_arr[sid]) * \
+                    max(0.0, 2.0 - self.effort_arr[i]) * \
+                    float(self.weights.get("position_waste", 2.0))
+        return float(penalty)
 
     def _adjacency_score(self, genome):
+        if self._has_invalid_sids(genome):
+            return 0.0
         w = self.weights.get("adjacency", 1.5)
         total = 0.0
         pos_of_sid = {}
@@ -1431,6 +2139,8 @@ class FitnessEvaluator:
         return total * w + thumb_bonus + cl_bonus + tb_bonus + gp_bonus + ac_bonus + ma_bonus
 
     def _violation_score(self, genome):
+        if self._has_invalid_sids(genome):
+            return HARD_INVALID_FITNESS
         validation = self._layer_access_validation(genome)
         if validation is not None and not validation.valid:
             return HARD_INVALID_FITNESS
@@ -1444,10 +2154,59 @@ class FitnessEvaluator:
         total += self._missing_important_penalty(genome) * self.weights.get("missing_important", 15.0)
         total += self._momentary_redundancy_penalty(genome) * self.weights.get("momentary_redundancy", 5.0)
         total += self._cross_layer_duplicate_penalty(genome) * self.weights.get("cross_layer_duplicate", 8.0)
+        total += self._structural_duplicate_penalty(genome) * self.weights.get("structural_duplicate", 10.0)
         total += self._layer_redundancy_penalty(genome) * self.weights.get("layer_redundancy", 12.0)
         total += self._toggled_base_violation(genome) * self.weights.get("violations", 10.0)
         total += self._l0_key_displacement_violation(genome) * self.weights.get("violations", 10.0)
+        total += self._frozen_l0_duplicate_violation(genome) * self.weights.get("violations", 10.0)
         return total
+
+    def _structural_duplicate_penalty(self, genome):
+        """Penalize excessive equivalent layer-access keys."""
+        per_source_counts = {}
+        global_counts = {}
+        for i, sid in enumerate(genome):
+            if sid < 0:
+                continue
+            target = int(self.struct_cap_target_arr[int(sid)])
+            mode = int(self.struct_cap_mode_arr[int(sid)])
+            if target < 0 or mode < 0:
+                continue
+            source_key = (int(self.positions[i].layer), target, mode)
+            global_key = (target, mode)
+            per_source_counts[source_key] = per_source_counts.get(source_key, 0) + 1
+            global_counts[global_key] = global_counts.get(global_key, 0) + 1
+        penalty = 0.0
+        for count in per_source_counts.values():
+            if count > 2:
+                penalty += (count - 2) ** 2 * 10.0
+        for count in global_counts.values():
+            if count > 3:
+                penalty += (count - 3) ** 2 * 10.0
+        return penalty
+
+    def structural_capability_duplicate_summary(self, genome):
+        """Return worst global capability duplicate group for logging."""
+        counts = {}
+        mode_names = {v: k for k, v in getattr(self, "struct_cap_mode_ids", {}).items()}
+        for sid in genome:
+            if sid < 0 or sid >= self.n_shortcuts:
+                continue
+            target = int(self.struct_cap_target_arr[int(sid)])
+            mode = int(self.struct_cap_mode_arr[int(sid)])
+            if target < 0 or mode < 0:
+                continue
+            key = (target, mode)
+            counts[key] = counts.get(key, 0) + 1
+        if not counts:
+            return {"target": None, "mode": None, "count": 0, "excess": 0}
+        (target, mode), count = max(counts.items(), key=lambda kv: kv[1])
+        return {
+            "target": int(target),
+            "mode": mode_names.get(mode, str(mode)),
+            "count": int(count),
+            "excess": max(0, int(count) - 3),
+        }
 
     def _toggled_base_violation(self, genome):
         """Penalize toggled layers that lack a coach_base key anywhere on the layer.
@@ -1472,6 +2231,18 @@ class FitnessEvaluator:
                 penalty += 50.0 + self.importance_arr[sid] * 2.0
         return penalty
 
+    def _frozen_l0_duplicate_violation(self, genome):
+        """Penalize mutable placements of keys already present in locked L0."""
+        if not self.frozen_l0_sids:
+            return 0.0
+        penalty = 0.0
+        for i, sid in enumerate(genome):
+            if sid >= 0 and int(sid) in self.frozen_l0_sids:
+                if self.frozen_l0_source_pos_arr[i] > 0:
+                    continue
+                penalty += 50.0 + self.importance_arr[int(sid)] * 5.0
+        return penalty
+
     def _missing_important_penalty(self, genome):
         """Penalize shortcuts from the pool that aren't placed anywhere.
         All shortcuts in the pool are on mutable layers — bare keys like Vimium j/k
@@ -1481,13 +2252,15 @@ class FitnessEvaluator:
         for s in self.pool:
             if s.sid in assigned_sids:
                 continue
+            if s.sid in getattr(self, "mouse_button_required_sids", set()):
+                penalty += max(10.0, self.importance_arr[s.sid]) ** 2 * 3.0
             if s.importance >= 9.0:
                 penalty += s.importance * s.importance * 2.0
             elif s.importance >= 3.0:
                 penalty += s.importance * s.importance * 0.5
             elif s.importance >= 1.0:
                 penalty += s.importance * 0.5
-        return penalty
+        return float(penalty)
 
     def _finger_balance(self, genome):
         finger_loads = {}
@@ -1517,6 +2290,34 @@ class FitnessEvaluator:
                         if self.finger_arr[pa] == self.finger_arr[pb] and self.finger_arr[pa] >= 0:
                             penalty += weight * 0.5
         return penalty
+
+    def same_finger_offenders(self, genome, limit=10):
+        """Return top same-finger conjunction conflicts for verbose logging."""
+        pos_of_sid = {}
+        for i, sid in enumerate(genome):
+            if sid >= 0:
+                pos_of_sid.setdefault(int(sid), []).append(i)
+        offenders = []
+        for sid_a, sid_b, weight in self.conj_pairs:
+            total = 0.0
+            examples = []
+            for pa in pos_of_sid.get(sid_a, []):
+                for pb in pos_of_sid.get(sid_b, []):
+                    if self.layer_arr[pa] == self.layer_arr[pb] and self.finger_arr[pa] == self.finger_arr[pb] and self.finger_arr[pa] >= 0:
+                        total += weight * 0.5
+                        if len(examples) < 2:
+                            examples.append((int(pa), int(pb), int(self.layer_arr[pa]), self.positions[pa].finger))
+            if total > 0:
+                offenders.append({
+                    "sid_a": int(sid_a),
+                    "key_a": self.pool[int(sid_a)].keys,
+                    "sid_b": int(sid_b),
+                    "key_b": self.pool[int(sid_b)].keys,
+                    "score": float(total),
+                    "examples": examples,
+                })
+        offenders.sort(key=lambda x: -x["score"])
+        return offenders[:limit]
 
     def _thumb_utilization(self, genome):
         bonus = 0.0
@@ -1559,7 +2360,6 @@ class FitnessEvaluator:
                 continue
             coords = [(p.x, p.y) for p in pos_list]
             if len(set(coords)) == 1:
-                # Same physical position across layers — reward proportional to count
                 layer_types = set()
                 for p in pos_list:
                     if p.layer in self.toggled_layers:
@@ -1567,7 +2367,8 @@ class FitnessEvaluator:
                     elif p.layer in self.momentary_layers:
                         layer_types.add("momentary")
                 weight = 2.5 if "toggled" in layer_types else 1.5
-                bonus += weight * len(pos_list)
+                imp_scale = max(1.0, self.importance_arr[sid]) * 0.5
+                bonus += weight * len(pos_list) * imp_scale
         return bonus
 
     def _trackball_proximity(self, genome):
@@ -1957,6 +2758,9 @@ class FitnessEvaluator:
             layer = self.positions[i].layer
             if layer not in self.momentary_layers:
                 continue
+            if layer in self.pure_momentary_layers and sid in self.coach_base_sids:
+                penalty += 10.0 + self.importance_arr[sid]
+                continue
             if sid not in self.base_accessible_sids:
                 continue
             complexity = self._shortcut_complexity(sid)
@@ -2000,14 +2804,18 @@ class FitnessEvaluator:
         for i, sid in enumerate(genome):
             if sid < 0:
                 continue
+            if self.capability_sid_arr[int(sid)] > 0:
+                continue
             sid_layers.setdefault(int(sid), set()).add(self.positions[i].layer)
         penalty = 0.0
         for sid, layers in sid_layers.items():
             n = len(layers)
-            if n > 2:
-                imp = self.importance_arr[sid]
+            imp = self.importance_arr[sid]
+            waste_factor = max(1.0, 10.0 - imp)
+            if n == 2:
+                penalty += waste_factor * 0.3
+            elif n > 2:
                 extra = n - 2
-                waste_factor = max(1.0, 10.0 - imp)
                 penalty += extra * extra * waste_factor
         return penalty
 

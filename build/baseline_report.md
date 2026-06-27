@@ -1,58 +1,55 @@
 # Charybdis Keymap Baseline Report
-Generated: 2026-06-25T09:02:40.735Z
+Generated: 2026-06-27T02:45:13.709Z
 
 ## Summary
 
 | Metric | Value |
 |--------|-------|
-| Total keys | 616 |
-| Active layers | 10 |
+| Total keys | 659 |
+| Active layers | 12 |
 | Apps tracked | 13 |
 | Total app shortcuts | 532 |
-| Shortcuts mapped | 462 (87%) |
+| Shortcuts mapped | 473 (89%) |
 | Workflows tested | 28 |
 | Workflows passing | 28/28 |
-| Sync mismatches | 6 |
+| Sync mismatches | 16 |
 | Layer contexts | 15 |
 
 ## App Coverage
 
 | App | Weight | Shortcuts | Mapped | Coverage | Efficiency |
 |-----|--------|-----------|--------|----------|------------|
-| Microsoft Teams | 1 | 44 | 36 | 82% | 62% |
-| Windows 11 | 1 | 52 | 46 | 88% | 65% |
-| Browser (Chrome/Edge) | 0.95 | 89 | 69 | 78% | 59% |
-| Visual Studio Code | 0.9 | 76 | 66 | 87% | 60% |
-| M-Files Desktop Client | 0.85 | 37 | 35 | 95% | 69% |
-| M-Files Admin | 0.85 | 17 | 16 | 94% | 64% |
-| Microsoft Outlook | 0.7 | 30 | 29 | 97% | 72% |
-| Microsoft Excel | 0.5 | 58 | 52 | 90% | 61% |
-| File Explorer | 0.45 | 31 | 23 | 74% | 60% |
-| Windows Terminal / PowerShell | 0.4 | 26 | 22 | 85% | 63% |
-| Microsoft Word | 0.3 | 29 | 26 | 90% | 71% |
-| Microsoft PowerPoint | 0.2 | 27 | 27 | 100% | 71% |
-| Discord | 0.2 | 16 | 15 | 94% | 63% |
+| Microsoft Teams | 1 | 44 | 43 | 98% | 67% |
+| Windows 11 | 1 | 52 | 42 | 81% | 58% |
+| Browser (Chrome/Edge) | 0.95 | 89 | 73 | 82% | 58% |
+| Visual Studio Code | 0.9 | 76 | 69 | 91% | 60% |
+| M-Files Desktop Client | 0.85 | 37 | 36 | 97% | 69% |
+| M-Files Admin | 0.85 | 17 | 16 | 94% | 62% |
+| Microsoft Outlook | 0.7 | 30 | 29 | 97% | 71% |
+| Microsoft Excel | 0.5 | 58 | 49 | 84% | 57% |
+| File Explorer | 0.45 | 31 | 24 | 77% | 58% |
+| Windows Terminal / PowerShell | 0.4 | 26 | 22 | 85% | 62% |
+| Microsoft Word | 0.3 | 29 | 27 | 93% | 69% |
+| Microsoft PowerPoint | 0.2 | 27 | 27 | 100% | 68% |
+| Discord | 0.2 | 16 | 16 | 100% | 64% |
 
 ## High-Frequency Unmapped Shortcuts
 
 | Importance | App | Shortcut | Action | Frequency |
 |-----------|-----|----------|--------|-----------|
+| 9.0 | Visual Studio Code | Ctrl+` | Toggle terminal | constant |
 | 8.5 | M-Files Desktop Client | Alt+Enter | Properties / metadata card | constant |
-| 6.0 | Microsoft Teams | Ctrl+3 | Teams/channels | high |
-| 6.0 | Microsoft Teams | Ctrl+4 | Calendar | high |
-| 5.7 | Browser (Chrome/Edge) | Alt+Right | Forward | high |
+| 6.0 | Windows 11 | Win+Down | Minimize / restore | high |
+| 6.0 | Windows 11 | Win+V | Clipboard history | high |
+| 6.0 | Windows 11 | Win+3 | Open/switch pinned app 3 | high |
+| 5.7 | Browser (Chrome/Edge) | Ctrl+Shift+Tab | Previous tab | high |
 | 5.7 | Browser (Chrome/Edge) | H | Go back in history | high |
 | 5.7 | Browser (Chrome/Edge) | J | Previous tab | high |
 | 5.7 | Browser (Chrome/Edge) | K | Next tab | high |
-| 5.4 | Visual Studio Code | Ctrl+J | Toggle bottom panel | high |
-| 5.4 | Visual Studio Code | Ctrl+Shift+Z | Redo | high |
-| 5.4 | Visual Studio Code | Alt+Right | Navigate forward | high |
 | 5.4 | Visual Studio Code | Alt+Click | Add cursor at position | high |
-| 5.4 | Visual Studio Code | Ctrl+Alt+Up | Add cursor above | high |
-| 5.4 | Visual Studio Code | Ctrl+Alt+Down | Add cursor below | high |
+| 5.4 | Visual Studio Code | F3 | Find next | high |
 | 5.1 | M-Files Admin | Alt+Enter | Properties | high |
 | 3.0 | Microsoft Excel | Ctrl+Shift++ | Insert cells/rows/columns | high |
-| 2.7 | File Explorer | Alt+Right | Forward | high |
 | 2.7 | File Explorer | Ctrl+Click | Select multiple (non-adjacent) | high |
 | 2.7 | File Explorer | Shift+Click | Select range | high |
 
@@ -67,38 +64,45 @@ Generated: 2026-06-25T09:02:40.735Z
 
 ### Layer 1: Navigation
 
-    F1     H      F      F4     F11    F6      │  F7     F8     F9     F10    F11    F12       y0
-    Code   F5     F6     F7     F8     V       │  ←      BkSp   F2     3 PD   End    BkSp      y1
-    Shft   ←      F3     Scroll Speed  Delete  │  Search ↓      ↑      →      →      Home      y2
-    Ctrl   F9     F10    F5     F12    9 PU    │  C      CmdPal [      ]      \      -         y3
+    Win+B  ·      F      Ctrl+1 Win+I  Ctrl+Shift+G  │  ·      Ctrl+O ·      ·      ·      ·         y0
+    Code   Alt+F12 Win+Tab Ctrl+Shift+W Shift+Alt+Right V       │  Ctrl+Shift+E Ctrl+Shift+H Win+R  Ctrl+Shift+C Ctrl+Up ·         y1
+    Ctrl+G leftarrow_combo Ctrl+Shift+U Scroll Speed  f2      │  Search ↓      ↑      →      Ctrl+End Win+Up    y2
+    ·      ·      f5     ·      Up     Ctrl+Shift+A  │  C      Ctrl+K coach_game_lock ·      Shift+Alt+Down ·         y3
 
 ### Layer 2: Mouse QoL
 
-    Snip   Task View Desktop Next Tab Prev Tab Scroll  │  Next Tab Desktop Del    Prev Tab Sel All Task View    y0
-    Esc    Alt+Tab Close  Enter  BkSp   Zoom In  │  Win    Enter  Refresh BkSp   Alt+Tab Cut       y1
-    Copy   MB1    MB2    MB3    MB4    MB5     │  Mouse Key Press Mouse Key Press Mouse Key Press Mouse Key Press Mouse Key Press Scroll    y2
-    Esc    Undo   Close  Zoom Out Sel All Paste   │  Copy   Redo   Paste  Undo   Speed  Close Win    y3
+    Snip   f9     Desktop f10    Ctrl+Shift+G Scroll  │  ·      Ctrl+2 ·      Ctrl+F ·      ·         y0
+    Win+E  Ctrl+Shift+K Close  Enter  F5     Zoom In  │  Win    Enter  Ctrl+S minus  f6     Cut       y1
+    MB4    Ctrl+H MB2    MB3    Ctrl+I Ctrl+6  │  Ctrl+C f4     coach_travel_toggle coach_base f5     Scroll    y2
+    ·      ·      Shift+Alt+A Ctrl+G Ctrl+Shift+E Paste   │  Shift+Alt+Down pageup ·      Undo   Speed  Ctrl+Shift+Enter    y3
 
 ### Layer 3: Window/App
 
-    Emoji  ←      →      Emoji  QSett  Notif   │  TskCy  SysTr  Copilot Acces  ←      Emoji     y0
-    MinAll ␣      V      →      →      Lang    │  TskMg  `      ↓      Lock   Settings Run       y1
-    Snip   3      2      1      4      5       │  Search F4     ←      Mouse Lock Speed  Game      y2
-    ClipH  →      ↑      Voice  S      D       │  Tab    D      Tab    Explorer CmdPal Power     y3
+    ·      ·      equal  Emoji  QSett  Notif   │  TskCy  ·      Ctrl+P BT?    left bracket_combo ·         y0
+    BT1    f17    ·      →      Win+M  Lang    │  TskMg  Ctrl+Shift+V ·      f16    Ctrl+Shift+K Shift+F8    y1
+    Ctrl+U ·      Ctrl+G 1      4      5       │  Search ·      Ctrl+/ ;      Ctrl+Shift+H Ctrl+Shift+E    y2
+    Ctrl+O ·      ·      Voice  S      ·       │  Tab    Ctrl+Y BT3    Ctrl+R Ctrl+Tab Ctrl+Shift+N    y3
 
 ### Layer 4: System/BT
 
-    Bluetooth Bluetooth Bluetooth Bluetooth Bluetooth Bluetooth  │  Output Selection Output Selection Output Selection Studio Unlock Reset  Bootloader    y0
-    Ctrl+G Ctrl+O F15    F16    F14    F18     │  F17    Ctrl+K Ctrl+S Ctrl+L Ctrl+B Ctrl+U    y1
-    ·      F19    F20    F21    ·      F23     │  F13    Hand   Ctrl+E Ctrl+P Ctrl+R Share     y2
-    Excel  F24    DMS    Ctrl+D Ctrl+I F22     │  Mute   Camera Ctrl+W Ctrl+N Hangup Accept    y3
+    BT0    BT1    BT2    BT3    BT4    ·       │  Ctrl+Shift+X f6     ·      Studio Unlock Ctrl+Enter Bootloader    y0
+    Ctrl+G Ctrl+O F15    F16    F14    return enter  │  Ctrl+S end    ·      Ctrl+L delete Ctrl+U    y1
+    Backspace F19    F20    F21    Ctrl+I right bracket  │  ·      leftshift left bracket f12    f5     Share     y2
+    Excel  Shift+Alt+Up DMS    Ctrl+D Tab    F22     │  Ctrl+Shift+V home   f11    f7     Hangup Accept    y3
 
 ### Layer 5: Code/IDE
 
-    Hover  SelNx  Stop   StpOv  GoSym  StpOt   │  BkPt   Rstr   Cmnt   Explr  NewFl  Fmt       y0
-    Wrap   LnUp   LnDn   CpDn   InsUp  InsLn   │  Split  Open   Debug  SelAl  Peek   GoLn      y1
-    Rename Save   Brkt   Sett   DelLn  Term    │  Ind    CmdP   Probs  StpIn  SrchF  Git       y2
-    Close  PstNF  BlkCm  NTerm  Ext    Rename  │  Close  Outd   SelLn  RplFl  NxtPr  PrvPr     y3
+    ·      ·      Stop   ·      GoSym  ·       │  Ctrl+Shift+H Ctrl+G Win+Ctrl+D Explr  ·      ·         y0
+    Wrap   Ctrl+Shift+F f18    Win+Ctrl+Right InsUp  Ctrl+Shift+`  │  ·      ·      Ctrl+W f1     backslash ·         y1
+    Ctrl+N Save   Ctrl+J Sett   DelLn  Ctrl+Shift+S  │  ·      ·      Ctrl+L ·      coach_travel_toggle ·         y2
+    ·      PstNF  ·      NTerm  Ext    f8      │  ·      ·      ·      keypad 3 ·      ·         y3
+
+### Layer 6: Scroll
+
+    ·      ·      ·      Alt+=  Ctrl+Left ·       │  ·      Ctrl+Q ·      ·      ·      ·         y0
+    ·      ·      Ctrl+Space F10    Win+Shift+Left Ctrl+Right  │  Ctrl+Shift+R Alt+Right Ctrl+5 Ctrl+Shift+Left ·      ·         y1
+    ·      Ctrl+Shift+Down F9     ·      Ctrl+3 Win+Space  │  ·      Ctrl+4 F5     Ctrl+Alt+Down Ctrl+Shift+Up ·         y2
+    ·      ·      Ctrl+Shift++ Shift+F11 Win+Shift+Right F4      │  Ctrl+Shift+I Ctrl+Shift+T Ctrl+6 Ctrl+Shift+Right ·      ·         y3
 
 ### Layer 7: Game/RPG
 
@@ -109,41 +113,48 @@ Generated: 2026-06-25T09:02:40.735Z
 
 ### Layer 8: Speed/Travel
 
+    ·      ·      ·      ·      escape ·       │  ·      Shift+Space ·      ·      ·      ·         y0
+    ·      ·      F11    Ctrl+Shift+S home   Win+Ctrl+Right  │  Ctrl+Shift+Esc Ctrl+Shift+Z Ctrl+- ·      ·      ·         y1
+    ·      ·      Ctrl+Shift+F6 ·      left gui ·       │  Ctrl+Shift+` Alt+F4 Alt+Down Ctrl+. ·      ·         y2
+    ·      ·      ·      Ctrl+Shift+B tab    Win+.   │  Win+;  Alt+Up Ctrl+Home ·      ·      ·         y3
+
+### Layer 9: M-Files/DMS
+
+    ·      ·      ·      ·      Ctrl+End ·       │  ·      Ctrl+Up ·      ·      ·      ·         y0
+    f2     WfSt   Asgn   ·      Fav    List    │  Print  Shift+Alt+Down ·      ·      ·      ·         y1
+    pageup Save   ChkIn  ·      Win+Tab Icon    │  ·      leftshift ·      Hist   Rel    UndCO     y2
+    ·      DLoad  Open   CpLnk  Notif  Group   │  Vault  rightarrow_combo Ctrl+Down ·      ·      ·         y3
+
+### Layer 10: Excel
+
+    ShftEnt SelAll Copy   Cut    AutoSum ·       │  ·      ·      ·      Ctrl+Dn ·      Win+C     y0
+    ShftTab Sel←   ·      Sel↑   ·      InsTime  │  ·      coach_mouse_lock ·      SelHome Win+B  coach_game_lock    y1
+    Find   SelCol F4 $Ref ·      SelEnd ·       │  Win+L  Paste  NextSht Undo   Win+2  Win+N     y2
+    HideRow Replace Delete NumFmt Ctrl+Alt+Up Ctrl+Page Down  │  ·      Win+E  ·      grave accent_combo Win+Left ·         y3
+
+### Layer : Layer 
+
     ·      ·      ·      ·      ·      ·       │  ·      ·      ·      ·      ·      ·         y0
     ·      ·      ·      ·      ·      ·       │  ·      ·      ·      ·      ·      ·         y1
     ·      ·      ·      ·      ·      ·       │  ·      ·      ·      ·      ·      ·         y2
     ·      ·      ·      ·      ·      ·       │  ·      ·      ·      ·      ·      ·         y3
 
-### Layer 9: M-Files/DMS
-
-    Refresh ·      ·      ·      ·      ·       │  ·      ·      ·      ·      ·      ·         y0
-    Back   WfSt   Asgn   Rename Fav    List    │  Print  ·      Search ·      ·      ·         y1
-    Search Save   ChkIn  ChkOt  ·      Icon    │  Refresh ·      Back   Hist   Rel    UndCO     y2
-    Rename DLoad  Open   CpLnk  Notif  Group   │  Vault  ·      ·      ·      ·      ·         y3
-
-### Layer 10: Excel
-
-    ShftEnt SelAll Copy   Cut    AutoSum ShowFml  │  F2 Edit =      Ctrl+Up Ctrl+Dn PasteSp GoTo      y0
-    ShftTab Sel←   Sel→   Sel↑   Sel↓   InsTime  │  Insert SelRow InsDate SelHome Redo   FillRt    y1
-    Find   SelCol F4 $Ref Ctrl+Home SelEnd Ctrl+End  │  PrevSht Paste  NextSht Undo   Save   Bold      y2
-    HideRow Replace Delete NumFmt CurFmt PctFmt  │  FmtCell FillDn UnhideR HideCol GenFmt ArrFml    y3
-
 ## App Efficiency (weighted accessibility)
 
 ```
-  Microsoft Teams      █████████████████████░░░░░░░░░░░░ 62%
-  Windows 11           ██████████████████████░░░░░░░░░░░ 65%
-  Browser (Chrome/Edge ████████████████████░░░░░░░░░░░░░ 59%
+  Microsoft Teams      ██████████████████████░░░░░░░░░░░ 67%
+  Windows 11           ███████████████████░░░░░░░░░░░░░░ 58%
+  Browser (Chrome/Edge ███████████████████░░░░░░░░░░░░░░ 58%
   Visual Studio Code   ████████████████████░░░░░░░░░░░░░ 60%
   M-Files Desktop Clie ███████████████████████░░░░░░░░░░ 69%
-  M-Files Admin        █████████████████████░░░░░░░░░░░░ 64%
-  Microsoft Outlook    ████████████████████████░░░░░░░░░ 72%
-  Microsoft Excel      ████████████████████░░░░░░░░░░░░░ 61%
-  File Explorer        ████████████████████░░░░░░░░░░░░░ 60%
-  Windows Terminal / P █████████████████████░░░░░░░░░░░░ 63%
-  Microsoft Word       ████████████████████████░░░░░░░░░ 71%
-  Microsoft PowerPoint ████████████████████████░░░░░░░░░ 71%
-  Discord              █████████████████████░░░░░░░░░░░░ 63%
+  M-Files Admin        █████████████████████░░░░░░░░░░░░ 62%
+  Microsoft Outlook    ████████████████████████░░░░░░░░░ 71%
+  Microsoft Excel      ███████████████████░░░░░░░░░░░░░░ 57%
+  File Explorer        ███████████████████░░░░░░░░░░░░░░ 58%
+  Windows Terminal / P █████████████████████░░░░░░░░░░░░ 62%
+  Microsoft Word       ███████████████████████░░░░░░░░░░ 69%
+  Microsoft PowerPoint ███████████████████████░░░░░░░░░░ 68%
+  Discord              █████████████████████░░░░░░░░░░░░ 64%
 ```
 
 ## Layer Access Paths
@@ -155,12 +166,11 @@ Generated: 2026-06-25T09:02:40.735Z
 - **L1** (Navigation) → **L5** (Code/IDE) via toggle at x0,y1
 - **L1** (Navigation) → **L6** (Scroll) via momentary at x3,y2
 - **L1** (Navigation) → **L8** (Speed/Travel) via toggle at x4,y2
+- **L1** (Navigation) → **L7** (Game/RPG) via lock at x9,y3
 - **L2** (Mouse QoL) → **L6** (Scroll) via momentary at x5,y0
+- **L2** (Mouse QoL) → **L8** (Speed/Travel) via toggle at x9,y2
 - **L2** (Mouse QoL) → **L6** (Scroll) via toggle at x12,y2
 - **L2** (Mouse QoL) → **L8** (Speed/Travel) via momentary at x11,y3
-- **L3** (Window/App) → **L2** (Mouse QoL) via lock at x10,y2
-- **L3** (Window/App) → **L8** (Speed/Travel) via toggle at x11,y2
-- **L3** (Window/App) → **L7** (Game/RPG) via lock at x12,y2
 - **L4** (System/BT) → **L10** (Excel) via toggle at x0,y3
 - **L4** (System/BT) → **L9** (M-Files/DMS) via toggle at x2,y3
 
@@ -206,18 +216,15 @@ Unreachable: none
 
 ### Exit paths for lockable/toggleable layers
 
-- **L2** (Mouse QoL): 3 exits ✓
-  - 5:4: coach_base (Base)
-  - 7:4: coach_base (Base)
-  - 8:4: coach_base (Base)
+- **L2** (Mouse QoL): 1 exits ⚠ INSUFFICIENT
+  - 10:2: coach_base (coach_base)
 - **L7** (Game/RPG): 4 exits ✓
   - 3:4: coach_base (Exit Base)
   - 5:4: coach_base (Exit Base)
   - 7:4: coach_base (Exit Base)
   - 8:4: coach_base (Exit Base)
-- **L8** (Speed/Travel): 2 exits ✓
+- **L8** (Speed/Travel): 1 exits ⚠ INSUFFICIENT
   - 7:4: coach_travel_off (Exit Travel)
-  - 8:4: coach_travel_off (Exit Travel)
 
 ## Ergonomic Notes
 
@@ -225,14 +232,23 @@ No constraint violations.
 
 ## File Sync Status
 
-CSV rows: 616, Apply keys: 616
-Matched: 616, Mismatches: 6, Aliases: 0
+CSV rows: 617, Apply keys: 616
+Matched: 616, Mismatches: 15, Aliases: 0
 
 ### Mismatches
 
-- `2:0:0`: parameter — CSV: "Print Screen" vs Apply: "Keyboard PrintScreen"
-- `2:5:1`: parameter — CSV: "Equal" vs Apply: "Keyboard Equals and Plus"
-- `3:4:4`: modifiers — CSV: "L GUI" vs Apply: "Left GUI"
-- `10:4:0`: parameter — CSV: "Equal and Plus" vs Apply: "Keyboard Equals and Plus"
-- `10:8:0`: parameter — CSV: "Equal and Plus" vs Apply: "Keyboard Equals and Plus"
-- `10:7:1`: parameter — CSV: "Equal and Plus" vs Apply: "Keyboard Equals and Plus"
+- `2:0:0`: parameter — CSV: "PrintScreen" vs Apply: "Keyboard PrintScreen and SysReq"
+- `2:0:2`: parameter — CSV: "default_transform" vs Apply: "MB4"
+- `2:2:2`: parameter — CSV: "default_transform" vs Apply: "select:MB2"
+- `2:3:2`: parameter — CSV: "default_transform" vs Apply: "select:MB3"
+- `2:8:3`: parameter — CSV: "9 and PageUp" vs Apply: "Keypad 9 and PageUp"
+- `3:10:0`: parameter — CSV: "BT_SEL ?" vs Apply: "BT_SEL"
+- `3:3:4`: parameter — CSV: "3 and PageDn" vs Apply: "Keypad 3 and PageDn"
+- `5:10:3`: parameter — CSV: "3 and PageDn" vs Apply: "Keypad 3 and PageDn"
+- `7:1:1`: parameter — CSV: "9 and PageUp" vs Apply: "Keypad 9 and PageUp"
+- `7:3:1`: parameter — CSV: "3 and PageDn" vs Apply: "Keypad 3 and PageDn"
+- `7:9:1`: parameter — CSV: "3 and PageDn" vs Apply: "Keypad 3 and PageDn"
+- `7:11:1`: parameter — CSV: "9 and PageUp" vs Apply: "Keypad 9 and PageUp"
+- `7:4:5`: parameter — CSV: "default_transform" vs Apply: "select:MB1"
+- `7:5:5`: parameter — CSV: "default_transform" vs Apply: "select:MB2"
+- `9:0:2`: parameter — CSV: "9 and PageUp" vs Apply: "Keypad 9 and PageUp"

@@ -34,6 +34,7 @@ class AccessValidation:
     capabilities: list
     errors: list
     required_layers: set
+    access_depths: dict = None
 
     @property
     def layer_access_valid(self):
@@ -106,7 +107,10 @@ def fixed_capabilities_from_canonical(canonical, mutable_positions):
     mutable_coords = {(p.layer, p.coord) for p in mutable_positions}
     caps = []
     for layer_id, layer_data in canonical.get("layers", {}).items():
-        layer = int(layer_id)
+        try:
+            layer = int(layer_id)
+        except (TypeError, ValueError):
+            continue
         for coord, binding in layer_data.get("keys", {}).items():
             if (layer, coord) in mutable_coords:
                 continue
@@ -145,7 +149,12 @@ class LayerAccessAnalyzer:
         self.fixed_capabilities = fixed_capabilities_from_canonical(canonical, positions)
 
     def _required_layers(self):
-        existing = {int(layer) for layer in self.canonical.get("layers", {})}
+        existing = set()
+        for layer in self.canonical.get("layers", {}):
+            try:
+                existing.add(int(layer))
+            except (TypeError, ValueError):
+                continue
         return {layer for layer in existing if layer != 0 and layer in LAYER_ACCESS}
 
     def capabilities_for_genome(self, genome):
@@ -197,6 +206,19 @@ class LayerAccessAnalyzer:
             if not has_exit:
                 errors.append(f"Layer {layer} has no return-to-base exit")
 
+        # Compute access depths (BFS) reusing the same graph
+        depths = {0: 0}
+        bfs_queue = [(0, 0)]
+        while bfs_queue:
+            cur_depth, cur_layer = bfs_queue.pop(0)
+            if cur_depth > depths.get(cur_layer, float("inf")):
+                continue
+            for cap in graph.get(cur_layer, []):
+                next_depth = cur_depth + 1
+                if next_depth < depths.get(cap.target, float("inf")):
+                    depths[cap.target] = next_depth
+                    bfs_queue.append((next_depth, cap.target))
+
         return AccessValidation(
             valid=not errors,
             reachable_layers=reachable,
@@ -204,6 +226,7 @@ class LayerAccessAnalyzer:
             capabilities=caps,
             errors=errors,
             required_layers=set(self.required_layers),
+            access_depths=depths,
         )
 
     def layer_cost_vector(self, genome):

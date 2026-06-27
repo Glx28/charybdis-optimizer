@@ -4,10 +4,14 @@ A genome is an integer array of length M where M = number of mutable positions.
 Each gene value is a shortcut ID (index into shortcut_pool) or -1 for transparent/empty.
 """
 import json
+import re
 from dataclasses import dataclass, field
 
-ROW_COMFORT = {0: 3, 1: 2, 2: 1, 3: 2, 4: 4, 5: 5}
-COL_EFFORT = {0: 4, 1: 3, 2: 2, 3: 1, 4: 0, 5: 1, 7: 1, 8: 0, 9: 1, 10: 2, 11: 3, 12: 4}
+# Position value model — see docs/position_value_model.md
+# y=2 home row = best, y=1/y=3 adjacent = good, y=0 top = reach, y=4-5 thumb = context-dependent
+# Inner columns (x=1-4 left, x=8-11 right) = no extra, outer (x=0,5,7,12) = stretch penalty
+ROW_COMFORT = {0: 3.5, 1: 1.0, 2: 0.0, 3: 1.0, 4: 1.5, 5: 2.5}
+COL_EFFORT = {0: 2, 1: 0, 2: 0, 3: 0, 4: 0, 5: 2, 7: 2, 8: 0, 9: 0, 10: 0, 11: 0, 12: 2}
 LEFT_COLS = {0, 1, 2, 3, 4, 5}
 RIGHT_COLS = {7, 8, 9, 10, 11, 12}
 
@@ -72,10 +76,12 @@ KEY_GROUPS = [
 ]
 
 # Importance scores for base/structural keys — these protect keys through math, not freezes.
-# If the optimizer proposes displacing spacebar, the importance model is broken.
+# Mouse buttons are critical: no physical mouse, trackball only. MB1-3 are essential.
+# Norwegian layout: semicolon=ø, left_apos=æ, left_brace=å — these are on L0 locked area.
 BASE_KEY_IMPORTANCE = {
     "spacebar": 100.0,
     "return enter": 40.0,
+    "backspace": 35.0,
     "tab": 25.0,
     "escape": 20.0,
     "delete": 15.0,
@@ -86,17 +92,20 @@ BASE_KEY_IMPORTANCE = {
     "leftalt": 25.0,
     "rightalt": 20.0,
     "left gui": 20.0,
-    "select:mb1": 45.0,
-    "select:mb2": 15.0,
-    "select:mb3": 8.0,
-    "select:mb4": 5.0,
-    "select:mb5": 5.0,
+    # Mouse buttons — no physical mouse, trackball keyboard. High value.
+    "select:mb1": 45.0,     # left click — most used input after typing
+    "select:mb2": 35.0,     # right click — context menus, essential
+    "select:mb3": 20.0,     # middle click — open in new tab, close tab, scroll click
+    "select:mb4": 12.0,     # back — browser/explorer navigation
+    "select:mb5": 12.0,     # forward — browser/explorer navigation
     "coach_l1_hold": 18.0,
     "coach_l2_hold": 20.0,
     "coach_l3_hold": 15.0,
     "coach_l4_hold": 15.0,
     "coach_base": 12.0,
     "coach_mouse_lock": 10.0,
+    # Scroll: Momentary Layer 6 — only way to scroll on trackball keyboard
+    "momentary_layer_layer::6": 40.0,
     "coach_game_lock": 8.0,
     "coach_travel_toggle": 8.0,
     "coach_travel_off": 6.0,
@@ -125,9 +134,9 @@ BASE_KEY_IMPORTANCE = {
 PUNCTUATION_IMPORTANCE = {
     "period": 40.0,
     "comma": 35.0,
-    "semicolon": 30.0,          # ø on Norwegian
-    "left apos": 25.0,          # æ on Norwegian
-    "left brace": 25.0,         # å on Norwegian
+    "semicolon": 30.0,          # ø on Norwegian layout
+    "left apos": 25.0,          # æ on Norwegian layout
+    "left brace": 25.0,         # å on Norwegian layout
     "forwardslash": 20.0,
     "backslash": 15.0,
     "dash": 20.0,
@@ -138,7 +147,19 @@ PUNCTUATION_IMPORTANCE = {
     "right bracket": 15.0,
     "left bracket": 15.0,
     "grave accent": 10.0,
-    # Navigation keys
+    # Combo keys (shifted/modified chars — Norwegian layout produces special chars)
+    "semicolon_combo": 18.0,    # Ø (shifted ø)
+    "left brace_combo": 15.0,   # Å (shifted å)
+    "period_combo": 24.0,       # : (colon — very common in code/URLs)
+    "comma_combo": 21.0,        # ; (semicolon — common in code)
+    "minus_combo": 12.0,        # _ (underscore — very common in code)
+    "equal_combo": 9.0,
+    "forwardslash_combo": 12.0,
+    "backslash_combo": 9.0,
+    "left bracket_combo": 9.0,
+    "right bracket_combo": 9.0,
+    "right brace_combo": 9.0,
+    # Navigation keys — individual importance + group bonus from KEY_GROUPS
     "leftarrow": 30.0,
     "rightarrow": 30.0,
     "uparrow": 30.0,
@@ -149,11 +170,20 @@ PUNCTUATION_IMPORTANCE = {
     "pagedown": 12.0,
     "page up": 12.0,
     "page down": 12.0,
-    "keypad 9": 12.0,           # PageUp on keypad
-    "keypad 3": 12.0,           # PageDown on keypad
+    "keypad 9": 12.0,
+    "keypad 3": 12.0,
     "insert": 8.0,
     "print screen": 10.0,
     "printscreen": 10.0,
+    # Combo navigation (Shift+arrows = selection, common in editors)
+    "leftarrow_combo": 18.0,
+    "rightarrow_combo": 18.0,
+    "uparrow_combo": 18.0,
+    "downarrow_combo": 18.0,
+    "home_combo": 9.0,
+    "end_combo": 9.0,
+    "pageup_combo": 7.2,
+    "pagedown_combo": 7.2,
 }
 # Letters get uniform high importance
 for _letter in "abcdefghijklmnopqrstuvwxyz":
@@ -415,9 +445,15 @@ def get_base_key_id(binding):
 
     if b in ("Momentary Layer", "Toggle Layer", "To Layer"):
         key_id = f"{b.lower().replace(' ', '_')}_{p}"
-        return key_id, BASE_KEY_IMPORTANCE.get(b.lower(), 15.0)
+        imp = BASE_KEY_IMPORTANCE.get(key_id, BASE_KEY_IMPORTANCE.get(b.lower(), 15.0))
+        return key_id, imp
 
     if "mouse key press" in b.lower():
+        search_text = " ".join(str(binding.get(k, "")) for k in ("parameter", "label", "purpose", "usage_notes"))
+        mb_match = re.search(r"(?:select:\s*)?mb\s*([1-5])", search_text, re.IGNORECASE)
+        if mb_match:
+            key_id = f"select:mb{mb_match.group(1)}"
+            return key_id, BASE_KEY_IMPORTANCE.get(key_id, 5.0)
         return p, BASE_KEY_IMPORTANCE.get(p, 5.0)
 
     if any(kw in b.lower() for kw in ["bluetooth", "output selection"]):
@@ -451,7 +487,6 @@ def get_base_key_id(binding):
             return punct_key, punct_imp
 
     # F13-F24 (host trigger keys) — important functional keys
-    import re
     f_match = re.search(r'\bf(\d+)\b', p)
     if f_match:
         f_num = int(f_match.group(1))
@@ -472,12 +507,24 @@ def build_position_index(canonical, frozen_layers=None):
         frozen_layers = {7}
     positions = []
     idx = 0
-    for layer_id, layer_data in sorted(canonical["layers"].items(), key=lambda x: int(x[0])):
-        layer_num = int(layer_id)
+    def _layer_sort(item):
+        try:
+            return int(item[0])
+        except (TypeError, ValueError):
+            return 10**9
+
+    for layer_id, layer_data in sorted(canonical["layers"].items(), key=_layer_sort):
+        try:
+            layer_num = int(layer_id)
+        except (TypeError, ValueError):
+            continue
         if layer_num in frozen_layers:
             continue
         for coord, binding in sorted(layer_data["keys"].items()):
-            x, y = map(int, coord.split(":"))
+            try:
+                x, y = map(int, coord.split(":"))
+            except (AttributeError, TypeError, ValueError):
+                continue
             if is_structural(binding, layer_num):
                 continue
             pos = Position(
@@ -611,8 +658,17 @@ def _add_base_keys_to_pool(pool, key_to_idx, canonical):
     sid = len(pool)
     seen_base_keys = set()
 
-    for layer_id, layer_data in sorted(canonical["layers"].items(), key=lambda x: int(x[0])):
-        layer_num = int(layer_id)
+    def _layer_sort(item):
+        try:
+            return int(item[0])
+        except (TypeError, ValueError):
+            return 10**9
+
+    for layer_id, layer_data in sorted(canonical["layers"].items(), key=_layer_sort):
+        try:
+            layer_num = int(layer_id)
+        except (TypeError, ValueError):
+            continue
         if layer_num == 7:  # RPG frozen
             continue
         for coord, binding in sorted(layer_data.get("keys", {}).items()):
@@ -639,6 +695,26 @@ def _add_base_keys_to_pool(pool, key_to_idx, canonical):
             ))
             key_to_idx[label] = sid
             sid += 1
+
+    # Mouse buttons are structural base bindings, but ZMK Studio exports may
+    # hide the actual button behind "default_transform" or a frozen game layer.
+    # Seed the canonical MB set so scratch runs can build a complete mouse mode.
+    for mb_num in range(1, 6):
+        key_id = f"select:mb{mb_num}"
+        label = f"_base_{key_id}"
+        if label in key_to_idx or label in seen_base_keys:
+            continue
+        seen_base_keys.add(label)
+        pool.append(Shortcut(
+            sid=sid, keys=label, action=f"Base key: MB{mb_num}",
+            app="base", category="base_key",
+            importance=BASE_KEY_IMPORTANCE.get(key_id, 5.0),
+            base_key=key_id, modifiers=[],
+            zmk_parameter=f"MB{mb_num}",
+            apps=["base"],
+        ))
+        key_to_idx[label] = sid
+        sid += 1
 
 
 def build_layer_to_positions(positions):

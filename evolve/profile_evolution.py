@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from representation import (
     build_position_index, build_shortcut_pool, build_layer_to_positions,
-    encode_current_layout, discover_dynamic_groups,
+    encode_current_layout, discover_dynamic_groups, is_frozen_l0_position,
 )
 from fitness import FitnessEvaluator
 from operators import custom_mutate, pmx_crossover, OperatorContext
@@ -59,14 +59,8 @@ def main():
     )
 
     ctx = OperatorContext(positions, pool, layer_positions, evaluator.dynamic_groups)
-    # Freeze L0 like the real run does
-    open_l0_keys = set(config.get("open_l0_keys", []))
-    open_indices = []
-    for i, p in enumerate(positions):
-        if p.layer == 0 and current[i] >= 0:
-            key_name = pool[current[i]].keys
-            if key_name in open_l0_keys:
-                open_indices.append(i)
+    open_indices = [i for i, p in enumerate(positions)
+                    if p.layer == 0 and not is_frozen_l0_position(p)]
     ctx.set_frozen_l0(positions, open_indices)
 
     # --- Profile seeding ---

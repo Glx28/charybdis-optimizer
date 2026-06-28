@@ -9,6 +9,7 @@ import json
 import sys
 import os
 import csv
+from pathlib import Path
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -95,28 +96,22 @@ def derive_layer_roles(genome, positions, pool):
     return roles
 
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python export_csv.py <build_dir> [solution_index]")
-        sys.exit(1)
+def _load_results(build_dir):
+    for name in (
+        "evolution_scratch_results.json",
+        "evolution_scratch_results_interim.json",
+        "evolution_results.json",
+        "evolution_results_interim.json",
+    ):
+        path = os.path.join(build_dir, name)
+        if os.path.exists(path):
+            return json.load(open(path, encoding="utf-8")), name
+    raise FileNotFoundError(f"No evolution results found in {build_dir}")
 
-    build_dir = sys.argv[1]
-    sol_idx = int(sys.argv[2]) if len(sys.argv) > 2 else None
 
-    canonical = json.load(open(os.path.join(build_dir, "canonical.json"), encoding="utf-8"))
-    scores = json.load(open(os.path.join(build_dir, "app_shortcut_scores.json"), encoding="utf-8"))
-    results = json.load(open(os.path.join(build_dir, "evolution_results.json"), encoding="utf-8"))
-
-    positions = build_position_index(canonical, {7})
-    pool = build_shortcut_pool(scores, canonical)
-    analyzer = LayerAccessAnalyzer(canonical, positions, pool)
-
-    front = results.get("pareto_front", [])
-    if not front:
-        print("No pareto front solutions found")
-        sys.exit(1)
-
+def _select_solution(results, analyzer, sol_idx=None):
     if sol_idx is not None:
+        front = results.get("pareto_front", [])
         solution = front[sol_idx]
         validation = analyzer.validate(solution["genome"])
         if not validation.valid:
@@ -124,15 +119,49 @@ def main():
             for err in validation.errors:
                 print(f"  - {err}")
             raise SystemExit(1)
-    else:
-        valid_front = [s for s in front if analyzer.validate(s["genome"]).valid]
-        if not valid_front:
-            print("No valid layer-access solutions found")
-            raise SystemExit(1)
-        solution = min(valid_front, key=lambda s: s["fitness"]["effort"] + s["fitness"]["violations"])
+        return solution
 
-    genome = solution["genome"]
-    sol_id = solution.get("id", f"sol_{sol_idx or 0}")
+    candidates = []
+    for key in ("best_weighted", "best_effort", "best_violations"):
+        entry = results.get(key)
+        if entry and entry.get("genome"):
+            item = dict(entry)
+            item.setdefault("id", key)
+            candidates.append(item)
+    candidates.extend(s for s in results.get("pareto_front", []) if s.get("genome"))
+    valid = [s for s in candidates if analyzer.validate(s["genome"]).valid]
+    if not valid:
+        print("No valid layer-access solutions found")
+        raise SystemExit(1)
+    feasible = [s for s in valid if s.get("fitness", {}).get("violations", 1e18) < 200]
+    if feasible:
+        return min(feasible, key=lambda s: s["fitness"]["effort"])
+    return min(valid, key=lambda s: s.get("fitness", {}).get("violations", 1e18))
+
+
+def export_evolved_csv(*args):
+    """Export evolved CSV.
+
+    Supports both CLI-style export_evolved_csv(build_dir, solution_index=None)
+    and analyzer-style export_evolved_csv(genome, positions, pool, canonical, build_dir).
+    """
+    if len(args) >= 5:
+        genome, positions, pool, canonical, build_dir = args[:5]
+        sol_id = "selected"
+    else:
+        build_dir = args[0]
+        solution_index = args[1] if len(args) > 1 else None
+        canonical = json.load(open(os.path.join(build_dir, "canonical.json"), encoding="utf-8"))
+        scores = json.load(open(os.path.join(build_dir, "app_shortcut_scores.json"), encoding="utf-8"))
+        results, _source = _load_results(build_dir)
+
+        positions = build_position_index(canonical, {7})
+        pool = build_shortcut_pool(scores, canonical)
+        analyzer = LayerAccessAnalyzer(canonical, positions, pool)
+
+        solution = _select_solution(results, analyzer, solution_index)
+        genome = solution["genome"]
+        sol_id = solution.get("id", "selected")
     changes = export_genome_to_zmk(genome, positions, pool, canonical, sol_id)
     layer_roles = derive_layer_roles(genome, positions, pool)
 
@@ -142,20 +171,18 @@ def main():
         changed[(c["layer"], c["x"], c["y"])] = c
 
     # Read current CSV to preserve structure/ordering
-    csv_path = os.path.join(os.path.dirname(os.path.dirname(build_dir)),
-                            "charybdis-zmk-config", "layout", "keybindings_explained.csv")
-    if not os.path.exists(csv_path):
-        csv_path = os.path.join(build_dir, "..", "..", "charybdis-zmk-config",
-                                "layout", "keybindings_explained.csv")
+    repo_root = Path(__file__).resolve().parents[1]
+    sibling_root = repo_root.parent / "charybdis-zmk-config"
+    csv_path = sibling_root / "layout" / "keybindings_explained.csv"
 
     rows = []
     headers = ["layer", "layer_role", "x", "y", "visual_label", "behavior",
                "parameter", "modifiers", "purpose", "usage_notes"]
 
-    if not os.path.exists(csv_path):
+    if not csv_path.exists():
         raise FileNotFoundError(f"Canonical CSV not found at {csv_path} — cannot generate evolved CSV")
 
-    if os.path.exists(csv_path):
+    if csv_path.exists():
         with open(csv_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -224,6 +251,17 @@ def main():
     print(f"Exported {len(rows)} rows to {out_path}")
     print(f"  Exported: {len(changes)} keys")
     print(f"  Copy to: charybdis-zmk-config/layout/keybindings_explained.csv")
+    return out_path
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python export_csv.py <build_dir> [solution_index]")
+        sys.exit(1)
+
+    build_dir = sys.argv[1]
+    sol_idx = int(sys.argv[2]) if len(sys.argv) > 2 else None
+    export_evolved_csv(build_dir, sol_idx)
 
 
 if __name__ == "__main__":

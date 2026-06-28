@@ -31,7 +31,12 @@ def build_expected_csv(changes, canonical):
         key = (c["layer"], c["x"], c["y"])
         changed_coords[key] = c
 
-    for layer_id, layer_data in sorted(canonical["layers"].items(), key=lambda x: int(x[0])):
+    numeric_layers = [
+        (layer_id, layer_data)
+        for layer_id, layer_data in canonical["layers"].items()
+        if str(layer_id).strip().isdigit()
+    ]
+    for layer_id, layer_data in sorted(numeric_layers, key=lambda x: int(x[0])):
         layer_num = int(layer_id)
         if layer_num == 7:
             continue
@@ -230,8 +235,6 @@ def _fallback_verify(changes, changed_layers):
   let passed = 0, failed = 0, skipped = 0;
   const failures = [];
   let currentLayer = null;
-
-  let skipped = 0;
   for (const key of expected) {{
     if (!layers.includes(key.layer)) continue;
     if (key.studio_skip) {{ skipped++; continue; }}

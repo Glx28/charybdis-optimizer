@@ -10,6 +10,8 @@ from representation import (
     Position, Shortcut, LAYER_ACCESS,
     build_layer_to_positions, is_structural,
     is_in_protected_group, find_group_members, KEY_GROUPS,
+    is_frozen_l0_position, is_l0_thumb_worthy_shortcut,
+    shortcut_matches_group,
 )
 from layer_access import shortcut_capability
 
@@ -46,7 +48,13 @@ class OperatorContext:
         self.layers_with_2plus = [l for l in layer_positions if len(layer_positions[l]) >= 2]
         self.layer_keys = list(layer_positions.keys())
 
-        self.frozen_l0 = frozenset()
+        self.frozen_l0 = frozenset(
+            i for i, p in enumerate(positions) if is_frozen_l0_position(p)
+        )
+        self.l0_mutable_thumb_indices = frozenset(
+            i for i, p in enumerate(positions)
+            if p.layer == 0 and p.is_thumb and not is_frozen_l0_position(p)
+        )
         self.exit_sid_set = self._build_exit_sid_set()
 
         # Build protected SID flat set and group mappings
@@ -56,11 +64,17 @@ class OperatorContext:
         # Precompute shortcut metadata
         self.sid_apps = {}
         self.sid_is_base_key = set()
+        self.l0_thumb_worthy_sids = set()
+        self.critical_mouse_button_sids = set()
         for s in shortcut_pool:
             apps = frozenset(s.apps) if s.apps else frozenset({s.app})
             self.sid_apps[s.sid] = apps
             if s.category == "base_key":
                 self.sid_is_base_key.add(s.sid)
+            if is_l0_thumb_worthy_shortcut(s):
+                self.l0_thumb_worthy_sids.add(s.sid)
+            if s.keys in ("_base_select:mb1", "_base_select:mb2", "_base_select:mb3"):
+                self.critical_mouse_button_sids.add(s.sid)
 
         self.importance_sorted_sids = sorted(
             [s.sid for s in shortcut_pool if s.sid not in self.sid_is_base_key],
@@ -88,15 +102,10 @@ class OperatorContext:
                 continue
             if "behaviors" in group:
                 continue
-            params = set(p.upper() for p in group.get("params", []))
-            mods_req = group.get("mods_required", "")
             sids = set()
             for s in self.shortcut_pool:
-                if s.base_key.upper() not in params:
-                    continue
-                if mods_req and not any(mods_req.lower() in m.lower() for m in s.modifiers):
-                    continue
-                sids.add(s.sid)
+                if shortcut_matches_group(s, group):
+                    sids.add(s.sid)
             if sids:
                 group_to_sids[group_id] = frozenset(sids)
                 for sid in sids:
@@ -166,6 +175,14 @@ class OperatorContext:
 
         is_thumb = np.array([p.is_thumb for p in self.positions], dtype=bool)
         self.t_is_thumb = torch.tensor(is_thumb, device=d)
+        l0_mutable = np.zeros(N, dtype=bool)
+        for idx in self.l0_mutable_thumb_indices:
+            l0_mutable[idx] = True
+        self.t_l0_mutable_thumb = torch.tensor(l0_mutable, device=d)
+        l0_worthy = torch.zeros(S + 1, dtype=torch.bool, device=d)
+        for sid in self.l0_thumb_worthy_sids:
+            l0_worthy[sid] = True
+        self.t_l0_thumb_worthy_sid = l0_worthy
 
         self.layers_with_2plus_t = torch.tensor(self.layers_with_2plus, device=d, dtype=torch.long)
         self.layer_keys_t = torch.tensor(self.layer_keys, device=d, dtype=torch.long)
@@ -192,8 +209,29 @@ class OperatorContext:
         protected = set(self.frozen_l0)
         psids = self.protected_sid_set
         if psids:
-            protected.update(i for i, sid in enumerate(genome) if sid >= 0 and sid in psids)
+            protected.update(
+                i for i, sid in enumerate(genome)
+                if sid >= 0 and sid in psids and self.position_accepts_sid(i, sid)
+            )
         return protected
+
+    def position_accepts_sid(self, gene_idx, sid):
+        """Return whether sid is legal at a physical position.
+
+        Protected groups preserve good structure, but they must never preserve
+        a shortcut in a position that violates a hard positional role.
+        """
+        if sid < 0 or sid >= self.pool_size:
+            return True
+        if gene_idx in self.l0_mutable_thumb_indices:
+            return sid in self.l0_thumb_worthy_sids
+        return True
+
+    def incompatible_indices(self, genome):
+        return [
+            i for i, sid in enumerate(genome)
+            if sid >= 0 and not self.position_accepts_sid(i, sid)
+        ]
 
     def find_group_at(self, genome, gene_idx):
         sid = genome[gene_idx]
@@ -217,6 +255,132 @@ class OperatorContext:
         return [sid for sid in self.importance_sorted_sids
                 if sid not in assigned and pool[sid].importance >= min_importance]
 
+    def is_left_mouse_workflow_source(self, gene_idx, sid):
+        if sid not in self.critical_mouse_button_sids:
+            return False
+        pos = self.positions[gene_idx]
+        access = LAYER_ACCESS.get(pos.layer, {})
+        return pos.hand == "left" and access.get("thumb") == "left" and "momentary" in access.get("method", "")
+
+
+def repair_position_compatibility(genome, ctx):
+    """Evacuate shortcuts from positions where their role is illegal.
+
+    This is a genome-validity repair, not a layout preference. Example:
+    raw arrow keys are protected as an arrow group, but a raw arrow on a
+    mutable L0 thumb is an illegal physical role, so it must be movable.
+    """
+    g = copy.copy(genome)
+    repaired = 0
+    all_indices = list(range(len(g)))
+
+    # First normalize mutable L0 thumbs. These are role-constrained premium
+    # slots: if one is empty or contains content, promote the best movable
+    # structural/L0-worthy key into it.
+    l0_targets = [
+        i for i in sorted(ctx.l0_mutable_thumb_indices, key=lambda j: (ctx.positions[j].effort, ctx.positions[j].y, ctx.positions[j].x))
+        if g[i] < 0 or not ctx.position_accepts_sid(i, g[i])
+    ]
+    for idx in l0_targets:
+        protected = ctx.protected_indices(g)
+        old_sid = g[idx]
+        assigned = {sid for sid in g if sid >= 0}
+
+        swap_sources = [
+            j for j in all_indices
+            if j != idx
+            and j not in protected
+            and j not in ctx.l0_mutable_thumb_indices
+            and g[j] >= 0
+            and not ctx.is_left_mouse_workflow_source(j, g[j])
+            and ctx.position_accepts_sid(idx, g[j])
+            and (old_sid < 0 or ctx.position_accepts_sid(j, old_sid))
+        ]
+        if swap_sources:
+            source = max(
+                swap_sources,
+                key=lambda j: (ctx.shortcut_pool[g[j]].importance, -ctx.positions[j].effort),
+            )
+            g[idx], g[source] = g[source], g[idx]
+            repaired += 1
+            continue
+
+        unassigned = [
+            s for s in ctx.shortcut_pool
+            if s.sid not in assigned and ctx.position_accepts_sid(idx, s.sid)
+        ]
+        if unassigned:
+            shortcut = max(unassigned, key=lambda s: s.importance)
+            if old_sid >= 0:
+                empty_targets = [
+                    j for j in all_indices
+                    if j != idx and g[j] < 0 and j not in protected and ctx.position_accepts_sid(j, old_sid)
+                ]
+                if empty_targets:
+                    target = min(empty_targets, key=lambda j: (ctx.positions[j].effort, ctx.positions[j].layer, ctx.positions[j].y, ctx.positions[j].x))
+                    g[target] = old_sid
+            g[idx] = shortcut.sid
+            repaired += 1
+
+    illegal = ctx.incompatible_indices(g)
+    protected = ctx.protected_indices(g)
+    for idx in illegal:
+        sid = g[idx]
+        if sid < 0 or ctx.position_accepts_sid(idx, sid):
+            continue
+
+        empty_targets = [
+            j for j in all_indices
+            if j != idx and g[j] < 0 and j not in protected and ctx.position_accepts_sid(j, sid)
+        ]
+        if empty_targets:
+            target = min(empty_targets, key=lambda j: (ctx.positions[j].effort, ctx.positions[j].layer, ctx.positions[j].y, ctx.positions[j].x))
+            g[target] = sid
+            g[idx] = -1
+            repaired += 1
+            continue
+
+        swap_targets = [
+            j for j in all_indices
+            if j != idx and j not in protected and g[j] >= 0
+            and ctx.position_accepts_sid(j, sid)
+            and ctx.position_accepts_sid(idx, g[j])
+        ]
+        if swap_targets:
+            target = min(swap_targets, key=lambda j: (ctx.shortcut_pool[g[j]].importance, ctx.positions[j].effort))
+            g[idx], g[target] = g[target], g[idx]
+            repaired += 1
+            continue
+
+        g[idx] = -1
+        repaired += 1
+
+    protected = ctx.protected_indices(g)
+    assigned = {int(sid) for sid in g if sid >= 0}
+    prime_empty = [
+        i for i, pos in enumerate(ctx.positions)
+        if pos.layer != 0
+        and pos.effort <= 1.5
+        and g[i] < 0
+        and i not in protected
+    ]
+    for idx in sorted(prime_empty, key=lambda j: (ctx.positions[j].effort, ctx.positions[j].layer, ctx.positions[j].y, ctx.positions[j].x)):
+        sid = next(
+            (
+                candidate
+                for candidate in ctx.importance_sorted_sids
+                if candidate not in assigned and ctx.position_accepts_sid(idx, candidate)
+            ),
+            None,
+        )
+        if sid is None:
+            break
+        g[idx] = sid
+        assigned.add(sid)
+        repaired += 1
+
+    return g, repaired
+
 
 def swap_within_layer(genome, ctx):
     genome = copy.copy(genome)
@@ -238,6 +402,10 @@ def swap_within_layer(genome, ctx):
             continue
         if grp_b and ia not in grp_b:
             continue
+        if not ctx.position_accepts_sid(ia, genome[ib]):
+            continue
+        if not ctx.position_accepts_sid(ib, genome[ia]):
+            continue
         genome[ia], genome[ib] = genome[ib], genome[ia]
         return genome
     return genome
@@ -257,6 +425,9 @@ def swap_to_empty(genome, ctx):
             grp = ctx.find_group_at(genome, src.gene_idx)
             if grp and len(grp) >= 2:
                 continue
+            empty = [p for p in empty if ctx.position_accepts_sid(p.gene_idx, genome[src.gene_idx])]
+            if not empty:
+                continue
             empty.sort(key=lambda p: p.effort)
             pick_idx = min(int(random.expovariate(2.0) * len(empty)), len(empty) - 1)
             dst = empty[pick_idx]
@@ -275,16 +446,22 @@ def thumb_fill(genome, ctx):
         return genome
 
     for layer, pos_list in ctx.layer_positions.items():
-        empty_thumbs = [p for p in pos_list if p.is_thumb and genome[p.gene_idx] < 0]
-        if not empty_thumbs:
-            continue
-
         candidates = [s for s in unassigned if s.importance >= 3.0]
         if not candidates:
             continue
 
-        target = random.choice(empty_thumbs)
-        shortcut = max(candidates, key=lambda s: s.importance)
+        empty_thumbs = [p for p in pos_list if p.is_thumb and genome[p.gene_idx] < 0]
+        compatible = [
+            (s, p) for s in candidates for p in empty_thumbs
+            if ctx.position_accepts_sid(p.gene_idx, s.sid)
+        ]
+        if not compatible:
+            continue
+
+        shortcut, target = max(
+            compatible,
+            key=lambda item: (item[0].importance, -item[1].effort),
+        )
         genome[target.gene_idx] = shortcut.sid
         assigned_sids.add(shortcut.sid)
         unassigned = [s for s in unassigned if s.sid != shortcut.sid]
@@ -328,7 +505,11 @@ def migrate_shortcut(genome, ctx):
     layer_order.sort(key=lambda l: -layer_affinity(l))
     for layer in layer_order:
         pos_list = ctx.layer_positions[layer]
-        empty = [p for p in pos_list if genome[p.gene_idx] < 0 and p.gene_idx not in protected]
+        empty = [
+            p for p in pos_list
+            if genome[p.gene_idx] < 0 and p.gene_idx not in protected
+            and ctx.position_accepts_sid(p.gene_idx, shortcut.sid)
+        ]
         if empty:
             target = min(empty, key=lambda p: p.effort)
             genome[target.gene_idx] = shortcut.sid
@@ -360,7 +541,10 @@ def deduplicate(genome, ctx):
 
         if random.random() < 0.5:
             assigned_sids = {s for s in genome if s >= 0}
-            candidates = [s for s in pool if s.sid not in assigned_sids]
+            candidates = [
+                s for s in pool
+                if s.sid not in assigned_sids and ctx.position_accepts_sid(target.gene_idx, s.sid)
+            ]
             if candidates:
                 best = max(candidates, key=lambda s: s.importance)
                 genome[target.gene_idx] = best.sid
@@ -410,7 +594,8 @@ def improve_coherence(genome, ctx):
 
     best_layer = max(layer_affinity, key=layer_affinity.get)
     empty = [p for p in ctx.layer_positions[best_layer]
-             if genome[p.gene_idx] < 0 and p.gene_idx not in protected]
+             if genome[p.gene_idx] < 0 and p.gene_idx not in protected
+             and ctx.position_accepts_sid(p.gene_idx, sid)]
     if empty:
         target = min(empty, key=lambda p: p.effort)
         genome[target.gene_idx] = sid
@@ -440,14 +625,9 @@ def move_group(genome, ctx):
                 if sid in group["sids"]:
                     by_layer.setdefault(ctx.positions[i].layer, []).append(i)
             else:
-                params_upper = group.get("_params_upper") or set(p.upper() for p in group.get("params", []))
-                mods_req = group.get("_mods_req", group.get("mods_required", ""))
                 s = pool[sid]
-                if s.base_key.upper() not in params_upper:
-                    continue
-                if mods_req and not any(mods_req.lower() in m.lower() for m in s.modifiers):
-                    continue
-                by_layer.setdefault(ctx.positions[i].layer, []).append(i)
+                if shortcut_matches_group(s, group):
+                    by_layer.setdefault(ctx.positions[i].layer, []).append(i)
 
         if not by_layer:
             continue
@@ -472,6 +652,8 @@ def move_group(genome, ctx):
         targets = targets[:len(member_indices)]
 
         sids = [genome[i] for i in member_indices]
+        if any(not ctx.position_accepts_sid(t.gene_idx, sid) for sid, t in zip(sids, targets)):
+            continue
         for i in member_indices:
             genome[i] = -1
         for sid, t in zip(sids, targets):
@@ -503,11 +685,17 @@ def swap_layer_content(genome, ctx):
     empty_a.sort(key=lambda p: p.effort)
     empty_b.sort(key=lambda p: p.effort)
     for i, (_, sid) in enumerate(sids_b):
-        if i < len(empty_a):
-            genome[empty_a[i].gene_idx] = sid
+        targets = [p for p in empty_a if ctx.position_accepts_sid(p.gene_idx, sid)]
+        if targets:
+            target = targets[0]
+            genome[target.gene_idx] = sid
+            empty_a.remove(target)
     for i, (_, sid) in enumerate(sids_a):
-        if i < len(empty_b):
-            genome[empty_b[i].gene_idx] = sid
+        targets = [p for p in empty_b if ctx.position_accepts_sid(p.gene_idx, sid)]
+        if targets:
+            target = targets[0]
+            genome[target.gene_idx] = sid
+            empty_b.remove(target)
     _repair_layer_dupes(genome, pos_a, protected)
     _repair_layer_dupes(genome, pos_b, protected)
     return genome
@@ -547,9 +735,12 @@ def redistribute_shortcuts(genome, ctx):
     to_move = random.sample(movable, n_move)
     empty_dst.sort(key=lambda p: p.effort)
     for i, src_p in enumerate(to_move):
-        if i < len(empty_dst):
-            genome[empty_dst[i].gene_idx] = genome[src_p.gene_idx]
+        targets = [p for p in empty_dst if ctx.position_accepts_sid(p.gene_idx, genome[src_p.gene_idx])]
+        if targets:
+            target = targets[0]
+            genome[target.gene_idx] = genome[src_p.gene_idx]
             genome[src_p.gene_idx] = -1
+            empty_dst.remove(target)
     return genome
 
 
@@ -572,7 +763,11 @@ def cross_layer_deduplicate(genome, ctx):
     genome[remove_idx] = -1
     if random.random() < 0.6:
         assigned_sids = {s for s in genome if s >= 0}
-        candidates = [s for s in pool if s.sid not in assigned_sids and s.importance >= 3.0]
+        candidates = [
+            s for s in pool
+            if s.sid not in assigned_sids and s.importance >= 3.0
+            and ctx.position_accepts_sid(remove_idx, s.sid)
+        ]
         if candidates:
             best = max(candidates, key=lambda s: s.importance)
             genome[remove_idx] = best.sid
@@ -644,6 +839,7 @@ def custom_mutate(genome, ctx, scratch_mode=False, generation=0, n_ops=1, phase=
     for _ in range(n_ops):
         idx = _pick_operator(random.random(), phase, scratch=scratch_mode)
         g = ops[idx](g)
+    g, _ = repair_position_compatibility(g, ctx)
     return (g,)
 
 
@@ -669,8 +865,11 @@ def pmx_crossover(parent1, parent2, ctx):
         seg2 = [parent2[safe_indices[i]] for i in range(a, b)]
 
         for i in range(a, b):
-            child1[safe_indices[i]] = seg2[i - a]
-            child2[safe_indices[i]] = seg1[i - a]
+            target = safe_indices[i]
+            if ctx.position_accepts_sid(target, seg2[i - a]):
+                child1[target] = seg2[i - a]
+            if ctx.position_accepts_sid(target, seg1[i - a]):
+                child2[target] = seg1[i - a]
 
         _repair_duplicates_on_layer(child1, indices)
         _repair_duplicates_on_layer(child2, indices)
@@ -703,8 +902,19 @@ def compute_protected_mask_gpu(genomes, ctx):
     S = ctx.pool_size
     safe_g = genomes.clamp(min=0, max=S)
     assigned = (genomes >= 0) & (genomes < S)
-    protected_by_sid = ctx.t_sid_is_protected[safe_g] & assigned
+    illegal_l0 = (
+        ctx.t_l0_mutable_thumb.unsqueeze(0) &
+        assigned &
+        ~ctx.t_l0_thumb_worthy_sid[safe_g]
+    )
+    protected_by_sid = ctx.t_sid_is_protected[safe_g] & assigned & ~illegal_l0
     return protected_by_sid | ctx.t_frozen_mask.unsqueeze(0)
+
+
+def _gpu_position_accepts_sid(ctx, idx, sid):
+    safe_sid = sid.clamp(min=0, max=ctx.pool_size)
+    needs_worthy = ctx.t_l0_mutable_thumb[idx]
+    return (~needs_worthy) | ctx.t_l0_thumb_worthy_sid[safe_sid]
 
 
 def batch_swap_within_layer(genomes, protected_mask, ctx):
@@ -732,6 +942,8 @@ def batch_swap_within_layer(genomes, protected_mask, ctx):
 
     val_a = genomes.gather(1, idx_a.unsqueeze(1)).squeeze(1)
     val_b = genomes.gather(1, idx_b.unsqueeze(1)).squeeze(1)
+    valid = valid & _gpu_position_accepts_sid(ctx, idx_a, val_b)
+    valid = valid & _gpu_position_accepts_sid(ctx, idx_b, val_a)
 
     result = genomes.clone()
     v = valid.unsqueeze(1)
@@ -772,6 +984,7 @@ def batch_swap_to_empty(genomes, protected_mask, ctx):
     dst_idx = dst_top.squeeze(1)
 
     src_vals = genomes.gather(1, src_idx.unsqueeze(1))
+    valid = valid & _gpu_position_accepts_sid(ctx, dst_idx, src_vals.squeeze(1))
     result = genomes.clone()
     v = valid.unsqueeze(1)
     result.scatter_(1, dst_idx.unsqueeze(1), torch.where(v, src_vals, result.gather(1, dst_idx.unsqueeze(1))))
@@ -798,7 +1011,9 @@ def batch_migrate_shortcut(genomes, protected_mask, ctx):
     chosen_sid = chosen_sid.squeeze(1)
 
     empty = (genomes >= S)
-    dst_cand = empty & ~protected_mask
+    chosen_worthy = ctx.t_l0_thumb_worthy_sid[chosen_sid].unsqueeze(1)
+    dst_compatible = (~ctx.t_l0_mutable_thumb.unsqueeze(0)) | chosen_worthy
+    dst_cand = empty & ~protected_mask & dst_compatible
     effort_score = -ctx.t_effort_arr.unsqueeze(0) * dst_cand.float()
     effort_score += torch.rand(B, N, device=d) * 0.01 * dst_cand.float()
     effort_score[~dst_cand] = -float('inf')
@@ -902,7 +1117,9 @@ def batch_thumb_fill(genomes, protected_mask, ctx):
 
     is_thumb = ctx.t_is_thumb.unsqueeze(0).expand(B, -1)
     empty = (genomes >= S)
-    thumb_cand = is_thumb & empty & ~protected_mask
+    chosen_worthy = ctx.t_l0_thumb_worthy_sid[chosen_sid].unsqueeze(1)
+    dst_compatible = (~ctx.t_l0_mutable_thumb.unsqueeze(0)) | chosen_worthy
+    thumb_cand = is_thumb & empty & ~protected_mask & dst_compatible
     has_thumb = thumb_cand.any(dim=1)
 
     noise = torch.rand(B, N, device=d)
@@ -959,6 +1176,7 @@ def batch_redistribute(genomes, protected_mask, ctx):
 
     result = genomes.clone()
     src_vals = result.gather(1, src_idx.unsqueeze(1))
+    valid = valid & _gpu_position_accepts_sid(ctx, dst_idx, src_vals.squeeze(1))
     v = valid.unsqueeze(1)
     result.scatter_(1, dst_idx.unsqueeze(1), torch.where(v, src_vals, result.gather(1, dst_idx.unsqueeze(1))))
     result.scatter_(1, src_idx.unsqueeze(1), torch.where(v, torch.full_like(src_vals, S), result.gather(1, src_idx.unsqueeze(1))))

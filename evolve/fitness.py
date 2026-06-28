@@ -18,6 +18,8 @@ from representation import (
     FINGER_MAP, THUMB_HAND, LEFT_COLS, RIGHT_COLS,
     KNOWN_KEY_NAMES, LAYER_ACCESS, build_layer_to_positions,
     discover_dynamic_groups, is_universal_shortcut,
+    is_frozen_l0_position, is_l0_thumb_worthy_shortcut,
+    shortcut_matches_group,
 )
 from layer_access import HARD_INVALID_FITNESS, LayerAccessAnalyzer
 
@@ -62,6 +64,18 @@ class FitnessEvaluator:
         for s in self.pool:
             self.importance_arr[s.sid] = s.importance
             self.raw_importance_arr[s.sid] = s.importance
+
+        # Clipboard parity: Ctrl+Z/X are as fundamental as Ctrl+C/V but score
+        # lower in the pipeline (9 vs 10). Boost to match so they compete for
+        # prime positions equally.
+        clipboard_max = 0.0
+        for s in self.pool:
+            if s.keys in ('Ctrl+C', 'Ctrl+V', 'Ctrl+Z', 'Ctrl+X'):
+                clipboard_max = max(clipboard_max, self.importance_arr[s.sid])
+        if clipboard_max > 0:
+            for s in self.pool:
+                if s.keys in ('Ctrl+Z', 'Ctrl+X'):
+                    self.importance_arr[s.sid] = max(self.importance_arr[s.sid], clipboard_max)
 
         self.usage_boost = np.ones(S + 1, dtype=np.float32)
         shortcuts_usage = self.usage_stats.get("shortcuts", {})
@@ -200,6 +214,7 @@ class FitnessEvaluator:
             layer for layer, info in LAYER_ACCESS.items()
             if info.get("method") == "momentary"
         }
+        self._classify_mouse_layers()
         self._build_thumb_busy_penalty()
         self._build_layer_importance_multipliers()
         self.base_accessible_sids = self._find_base_accessible()
@@ -207,7 +222,7 @@ class FitnessEvaluator:
         self._build_layer_context_mask()
         self._build_thumb_vectors()
         self._build_original_dupe_exempt()
-        self._build_l2_mouse_protection()
+        self._build_mouse_protection()
         self._build_toggled_layer_effort()
         self._build_toggled_base_requirement()
         self._build_l0_only_base_keys()
@@ -215,7 +230,9 @@ class FitnessEvaluator:
         self._build_structural_capability_data()
         self._build_app_coherence_data()
         self._build_mouse_accessibility_data()
+        self._build_relationship_awareness_data()
         self._build_layer_demand()
+        self._build_l0_open_position_data()
 
     def _build_layer_switch_costs(self):
         unique_layers = sorted(set(p.layer for p in self.positions))
@@ -337,6 +354,78 @@ class FitnessEvaluator:
             self.conj_sid_b = np.array([], dtype=np.int64)
             self.conj_weight = np.array([], dtype=np.float32)
 
+    def _add_relation_pair(self, relation_weights, sid_a, sid_b, weight):
+        if sid_a is None or sid_b is None or sid_a == sid_b or weight <= 0:
+            return
+        a, b = sorted((int(sid_a), int(sid_b)))
+        relation_weights[(a, b)] = max(float(weight), relation_weights.get((a, b), 0.0))
+
+    def _static_group_sids(self, group):
+        return [s.sid for s in self.pool if shortcut_matches_group(s, group)]
+
+    def _build_relationship_awareness_data(self):
+        """Pairs of controls that should be spatially coherent, not hard-locked.
+
+        This is broader than key groups. Mouse buttons are very strong
+        relations, clipboard/arrows are strong workflow relations, and observed
+        conjunction pairs add softer usage-derived relations.
+        """
+        relation_weights = {}
+
+        for sid_a, sid_b, weight in self.conj_pairs:
+            if sid_a == sid_b:
+                continue
+            # Usage/conjunction weights can be very large; compress them so
+            # observed habits inform layout without overwhelming hard quality.
+            self._add_relation_pair(
+                relation_weights, sid_a, sid_b,
+                min(8.0, 1.5 * math.log1p(float(weight))),
+            )
+
+        group_weights = {
+            "arrows": 12.0,
+            "win_directions": 8.0,
+            "clipboard": 10.0,
+            "f_keys_low": 2.0,
+            "f_keys_high": 2.0,
+        }
+        for group in KEY_GROUPS:
+            base_weight = group_weights.get(group.get("name"))
+            if not base_weight:
+                continue
+            members = self._static_group_sids(group)
+            for ia in range(len(members)):
+                for ib in range(ia + 1, len(members)):
+                    self._add_relation_pair(relation_weights, members[ia], members[ib], base_weight)
+
+        mouse_edges = {
+            ("1", "2"): 22.0,
+            ("1", "3"): 16.0,
+            ("2", "3"): 14.0,
+            ("2", "4"): 6.0,
+            ("1", "5"): 6.0,
+            ("4", "5"): 4.0,
+        }
+        for (a, b), weight in mouse_edges.items():
+            self._add_relation_pair(
+                relation_weights,
+                self.mouse_button_sids.get(a),
+                self.mouse_button_sids.get(b),
+                weight,
+            )
+
+        self.relationship_pairs = [
+            (a, b, w) for (a, b), w in sorted(relation_weights.items())
+        ]
+        if self.relationship_pairs:
+            self.relationship_sid_a = np.array([p[0] for p in self.relationship_pairs], dtype=np.int64)
+            self.relationship_sid_b = np.array([p[1] for p in self.relationship_pairs], dtype=np.int64)
+            self.relationship_weight = np.array([p[2] for p in self.relationship_pairs], dtype=np.float32)
+        else:
+            self.relationship_sid_a = np.array([], dtype=np.int64)
+            self.relationship_sid_b = np.array([], dtype=np.int64)
+            self.relationship_weight = np.array([], dtype=np.float32)
+
     def _build_distance_matrix(self):
         n = self.n_positions
         self.dist_matrix = np.full((n, n), 99.0, dtype=np.float32)
@@ -389,10 +478,10 @@ class FitnessEvaluator:
                 mb_num = mb_match.group(1)
                 self.mouse_button_sids[mb_num] = s.sid
         self.mouse_button_required_sids = set(self.mouse_button_sids.values())
-        self.l2_left_low_effort = []
+        self.mouse_left_low_effort = {}
         for i, p in enumerate(self.positions):
-            if p.layer == 2 and p.hand == "left" and p.effort <= 3:
-                self.l2_left_low_effort.append(i)
+            if p.layer in self.left_hand_mouse_layers and p.hand == "left" and p.effort <= 3:
+                self.mouse_left_low_effort.setdefault(p.layer, []).append(i)
 
     def _build_layer_demand(self):
         """Compute demand per layer dynamically from usage data.
@@ -448,6 +537,28 @@ class FitnessEvaluator:
         # Placeholder: _layer_demand_for_genome computes per-genome
         self.layer_demand = {}
 
+    def _build_l0_open_position_data(self):
+        """Mark mutable L0 thumb positions as premium slots.
+
+        L0 thumbs are the highest-value positions: direct access, thumb
+        reachable, no layer switch needed. They should hold structural keys:
+        coach holds, mouse buttons, layer switches, modifiers, spacebar-tier
+        controls. Raw content keys (arrows, F-keys, punctuation) do not
+        belong here even if they have high importance.
+        """
+        N = self.n_positions
+        S = self.n_shortcuts
+        self.l0_open_pos_arr = np.zeros(N, dtype=np.float32)
+        for i, pos in enumerate(self.positions):
+            if pos.layer == 0 and pos.is_thumb and not is_frozen_l0_position(pos):
+                self.l0_open_pos_arr[i] = 1.0
+
+        # SIDs that are "L0 thumb worthy" — structural/access keys
+        self.l0_thumb_worthy = np.zeros(S + 1, dtype=np.float32)
+        for s in self.pool:
+            if is_l0_thumb_worthy_shortcut(s):
+                self.l0_thumb_worthy[s.sid] = 1.0
+
     def _layer_demand_for_genome(self, genome):
         """Compute per-layer demand from a specific genome's shortcut placement.
 
@@ -475,6 +586,27 @@ class FitnessEvaluator:
         if max_score <= 0:
             max_score = 1.0
         return {layer: score / max_score for layer, score in layer_scores.items()}
+
+    def _classify_mouse_layers(self):
+        """Classify layers by mouse-mode capability from LAYER_ACCESS properties.
+
+        Left-hand mouse layers: left-thumb momentary — right hand free for trackball.
+        Synthetic mouse layers: toggled OR left-thumb momentary — right hand near
+        keyboard AND trackball, one-handed browsing.
+        Right-thumb momentary: BAD for mouse — right thumb holds layer key,
+        blocking trackball use.
+        """
+        self.left_hand_mouse_layers = set()
+        self.right_thumb_momentary_layers = set()
+        for layer, info in LAYER_ACCESS.items():
+            method = info.get("method", "")
+            thumb = info.get("thumb")
+            if thumb == "left" and "momentary" in method:
+                self.left_hand_mouse_layers.add(layer)
+            if thumb == "right" and "momentary" in method:
+                self.right_thumb_momentary_layers.add(layer)
+        self.synthetic_mouse_layers = self.left_hand_mouse_layers | self.toggled_layers
+        self.any_mouse_layers = self.left_hand_mouse_layers | self.synthetic_mouse_layers
 
     def _build_thumb_busy_penalty(self):
         """Extra effort for thumb-cluster keys on momentary layers where the
@@ -525,15 +657,15 @@ class FitnessEvaluator:
             self.thumb_busy_extra[i] = penalty
 
     def _build_layer_importance_multipliers(self):
-        """Per-position importance multiplier based on layer context.
-        L2 (Mouse) is one-handed mode: left hand does everything while right
-        hand is on trackball. Left-hand shortcuts get 2.5x importance,
-        right-hand gets 0.5x (user can't easily reach them)."""
+        """Per-position importance multiplier based on layer mouse capability.
+        Left-hand mouse layers: left hand does everything while right hand is
+        on trackball. Left-hand shortcuts get 2.5x, right-hand 0.5x.
+        Synthetic mouse layers: both hands available, no bias (1.0x)."""
         N = self.n_positions
         self.layer_imp_mult = np.ones(N, dtype=np.float32)
         mouse_bonus_w = self.weights.get("mouse_layer_bonus", 5.0)
         for i, pos in enumerate(self.positions):
-            if pos.layer == 2:
+            if pos.layer in self.left_hand_mouse_layers:
                 if pos.hand == "left":
                     self.layer_imp_mult[i] = 2.5
                 else:
@@ -557,22 +689,22 @@ class FitnessEvaluator:
                     if cnt > 1:
                         self.original_layer_sid_counts[(layer, sid)] = cnt
 
-    def _build_l2_mouse_protection(self):
-        """Identify L2 mouse button positions and essential clipboard shortcuts.
-        These must resist displacement because L2 is one-handed mouse mode."""
-        self.l2_protected_sids = set()
-        self.l2_protected_positions = set()
+    def _build_mouse_protection(self):
+        """Identify mouse button and clipboard positions on mouse-capable layers.
+        These resist displacement to preserve one-handed mouse mode."""
+        self.mouse_protected_sids = set()
+        self.mouse_protected_positions = set()
         if self.current_genome is None:
             return
         for i, sid in enumerate(self.current_genome):
-            if sid < 0 or self.positions[i].layer != 2:
+            if sid < 0 or self.positions[i].layer not in self.any_mouse_layers:
                 continue
             s = self.pool[sid]
             is_mouse_button = 'select:mb' in s.keys
             is_clipboard = s.keys in ('Ctrl+C', 'Ctrl+V', 'Ctrl+Z', 'Ctrl+X', 'Ctrl+A')
             if is_mouse_button or is_clipboard:
-                self.l2_protected_sids.add(sid)
-                self.l2_protected_positions.add(i)
+                self.mouse_protected_sids.add(sid)
+                self.mouse_protected_positions.add(i)
 
     def _build_toggled_layer_effort(self):
         """Add extra effort cost for toggled layers (L5, L9, L10).
@@ -617,6 +749,7 @@ class FitnessEvaluator:
             mode_id = self.struct_cap_mode_ids.setdefault(cap.mode, len(self.struct_cap_mode_ids))
             self.struct_cap_target_arr[s.sid] = cap.target
             self.struct_cap_mode_arr[s.sid] = mode_id
+        self.struct_exit_to_base_mode_id = self.struct_cap_mode_ids.get("exit_to_base", -1)
 
     def _capability_sid_set(self):
         """SIDs that express layer-access capability and may legitimately repeat."""
@@ -636,9 +769,10 @@ class FitnessEvaluator:
     def _build_frozen_l0_duplicate_data(self):
         """Precompute frozen L0 SIDs that should not be duplicated elsewhere.
 
-        L0 open positions are configured by shortcut key name. Every other
-        assigned L0 SID is something the user already has in the locked base
-        layout, so using it in any mutable position wastes optimizer capacity.
+        Frozen positions are determined by physical keyboard layout, not by
+        key names. The main grid (y=0-3) and two specific thumb positions
+        are frozen. All other L0 thumb positions are mutable — the optimizer
+        decides what goes there via importance scores.
         """
         self.frozen_l0_sids = set()
         S = self.n_shortcuts
@@ -651,12 +785,8 @@ class FitnessEvaluator:
         if self.current_genome is None:
             return
 
-        open_l0_keys = set(self.config.get("open_l0_keys", []))
         for i, sid in enumerate(self.current_genome):
-            if sid < 0 or self.positions[i].layer != 0:
-                continue
-            shortcut = self.pool[int(sid)]
-            if shortcut.keys in open_l0_keys:
+            if sid < 0 or not is_frozen_l0_position(self.positions[i]):
                 continue
             if int(sid) in capability_sids:
                 continue
@@ -679,8 +809,6 @@ class FitnessEvaluator:
         '_base_comma', '_base_period', '_base_semicolon',
         '_base_forwardslash', '_base_backslash',
         '_base_left brace', '_base_left apos',
-        '_base_coach_l1_hold', '_base_coach_l2_hold',
-        '_base_coach_l3_hold', '_base_coach_l4_hold',
     }
 
     def _build_l0_only_base_keys(self):
@@ -766,11 +894,11 @@ class FitnessEvaluator:
         self.t_thumb_busy_extra = torch.tensor(self.thumb_busy_extra, device=d)
         self.t_toggled_extra = torch.tensor(self.toggled_layer_extra, device=d)
 
-        # L2 mouse/clipboard protection mask for GPU learning curve
-        l2_prot = np.zeros(N, dtype=np.float32)
-        for idx in self.l2_protected_positions:
-            l2_prot[idx] = 1.0
-        self.t_l2_protected = torch.tensor(l2_prot, device=d)
+        # Mouse/clipboard protection mask for GPU learning curve
+        mouse_prot = np.zeros(N, dtype=np.float32)
+        for idx in self.mouse_protected_positions:
+            mouse_prot[idx] = 1.0
+        self.t_mouse_protected = torch.tensor(mouse_prot, device=d)
         layer_type_bonus = np.full(N, 1.5, dtype=np.float32)
         for i, p in enumerate(self.positions):
             if p.layer in self.toggled_layers:
@@ -817,6 +945,8 @@ class FitnessEvaluator:
         self.t_frozen_l0_sid = torch.tensor(self.frozen_l0_sid_arr, device=d)
         self.t_capability_sid = torch.tensor(self.capability_sid_arr, device=d)
         self.t_frozen_l0_source_pos = torch.tensor(self.frozen_l0_source_pos_arr, device=d)
+        self.t_l0_open_pos = torch.tensor(self.l0_open_pos_arr, device=d)
+        self.t_l0_thumb_worthy = torch.tensor(self.l0_thumb_worthy, device=d)
         self.t_struct_cap_target = torch.tensor(self.struct_cap_target_arr, device=d, dtype=torch.long)
         self.t_struct_cap_mode = torch.tensor(self.struct_cap_mode_arr, device=d, dtype=torch.long)
         mouse_related = np.zeros(S + 1, dtype=np.float32)
@@ -920,6 +1050,9 @@ class FitnessEvaluator:
         self.t_all_mouse_button_sids = torch.tensor(
             sorted(self.mouse_button_required_sids), device=d, dtype=torch.long
         )
+        self.t_relationship_sid_a = torch.tensor(self.relationship_sid_a, device=d, dtype=torch.long)
+        self.t_relationship_sid_b = torch.tensor(self.relationship_sid_b, device=d, dtype=torch.long)
+        self.t_relationship_weight = torch.tensor(self.relationship_weight, device=d)
         self.t_toggled_layer_indices = {
             layer: torch.tensor(layer_idxs, device=d, dtype=torch.long)
             for layer, layer_idxs in self.toggled_layer_indices.items()
@@ -939,10 +1072,28 @@ class FitnessEvaluator:
         for l in self.momentary_layers:
             if l in layer_masks:
                 self.t_momentary_mask |= layer_masks[l]
+        self.t_toggled_mask = torch.zeros(N, device=d, dtype=torch.bool)
+        for l in self.toggled_layers:
+            if l in layer_masks:
+                self.t_toggled_mask |= layer_masks[l]
         self.t_pure_momentary_mask = torch.zeros(N, device=d, dtype=torch.bool)
         for l in self.pure_momentary_layers:
             if l in layer_masks:
                 self.t_pure_momentary_mask |= layer_masks[l]
+
+        self.t_is_left_mouse_layer = torch.zeros(N, device=d, dtype=torch.bool)
+        for l in self.left_hand_mouse_layers:
+            if l in layer_masks:
+                self.t_is_left_mouse_layer |= layer_masks[l]
+        self.t_is_synthetic_mouse = torch.zeros(N, device=d, dtype=torch.bool)
+        for l in self.synthetic_mouse_layers:
+            if l in layer_masks:
+                self.t_is_synthetic_mouse |= layer_masks[l]
+        self.t_is_right_thumb_mom = torch.zeros(N, device=d, dtype=torch.bool)
+        for l in self.right_thumb_momentary_layers:
+            if l in layer_masks:
+                self.t_is_right_thumb_mom |= layer_masks[l]
+        self.t_is_any_mouse_layer = self.t_is_left_mouse_layer | self.t_is_synthetic_mouse
 
         # Original duplicate exemption per (layer, sid)
         self.t_original_dupe_counts = {}
@@ -961,15 +1112,10 @@ class FitnessEvaluator:
                 group_sids = list(group.get("sids", []))
                 expected_size = len(group_sids)
             else:
-                params = [p.upper() for p in group.get("params", [])]
-                mods_req = group.get("mods_required", "")
                 group_sids = []
                 for s in self.pool:
-                    if s.base_key.upper() not in params:
-                        continue
-                    if mods_req and not any(mods_req.lower() in m.lower() for m in s.modifiers):
-                        continue
-                    group_sids.append(s.sid)
+                    if shortcut_matches_group(s, group):
+                        group_sids.append(s.sid)
                 expected_size = len(group.get("params", []))
             if len(group_sids) >= 2:
                 is_spatial = group.get("name", "") in ("arrows",)
@@ -1079,7 +1225,8 @@ class FitnessEvaluator:
                     fb = self.t_finger_ext[pb].unsqueeze(2)
                     la = self.t_layer_ext[pa].unsqueeze(3)
                     lb = self.t_layer_ext[pb].unsqueeze(2)
-                    same = pair_valid & (fa == fb) & (fa >= 0) & (la == lb)
+                    not_self_pair = (ca != cb).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+                    same = pair_valid & not_self_pair & (fa == fb) & (fa >= 0) & (la == lb)
                     pair_penalty = same.float().sum(dim=(2, 3)) * cw.unsqueeze(0) * 0.5
                     sfp += pair_penalty.sum(dim=1)
             else:
@@ -1099,7 +1246,8 @@ class FitnessEvaluator:
                     fb = sid_finger.gather(1, cb.unsqueeze(0).expand(B, -1))
                     la = sid_layer.gather(1, ca.unsqueeze(0).expand(B, -1))
                     lb = sid_layer.gather(1, cb.unsqueeze(0).expand(B, -1))
-                    same = ((fa == fb) & (fa >= 0) & (la == lb) & (la >= 0)).float()
+                    not_self_pair = (ca != cb).unsqueeze(0)
+                    same = ((fa == fb) & not_self_pair & (fa >= 0) & (la == lb) & (la >= 0)).float()
                     sfp += (same * cw.unsqueeze(0) * 0.5).sum(dim=1)
 
         sfp *= self.weights.get("same_finger_penalty", 2.0)
@@ -1135,11 +1283,11 @@ class FitnessEvaluator:
             imp_sq = cur_imp_lc.unsqueeze(0).pow(2)
             swap_cost = (1.0 + cur_imp_lc.unsqueeze(0) * 0.5 + imp_sq * 0.01) * swapped.float()
             # L2 mouse/clipboard protection
-            swap_cost += (cur_imp_lc.unsqueeze(0) * 100.0) * (swapped.float() * self.t_l2_protected.unsqueeze(0))
-            # 3-tier multiplier
-            is_l2 = (self.t_layer == 2).unsqueeze(0).float()
+            swap_cost += (cur_imp_lc.unsqueeze(0) * 100.0) * (swapped.float() * self.t_mouse_protected.unsqueeze(0))
+            # 3-tier multiplier (skip on mouse layers — all keys there are important)
+            is_mouse = self.t_is_any_mouse_layer.unsqueeze(0).float()
             tier_per_pos = self.t_tier_mult[cur_sids_lc].unsqueeze(0)  # (1, N)
-            tier_adjusted = torch.where(is_l2 > 0, torch.ones_like(tier_per_pos), tier_per_pos)
+            tier_adjusted = torch.where(is_mouse > 0, torch.ones_like(tier_per_pos), tier_per_pos)
             swap_cost *= tier_adjusted
             # Base keys on non-L0 layers get 0.5× learning curve
             is_l0 = (self.t_layer == 0).unsqueeze(0)  # (1, N)
@@ -1173,14 +1321,14 @@ class FitnessEvaluator:
                 not_self = (new_pos_of_old != pos_idx)
                 nearby_any = same_layer_near & (manhattan <= 3) & not_self
             not_l0 = (~is_l0).float()  # (1, N)
-            not_l2_prot = (1.0 - self.t_l2_protected.unsqueeze(0))  # (1, N)
+            not_mouse_prot = (1.0 - self.t_mouse_protected.unsqueeze(0))  # (1, N)
             nearby_discount = (nearby_any & swapped).float()
-            nearby_discount *= not_l0 * not_l2_prot
+            nearby_discount *= not_l0 * not_mouse_prot
             swap_cost *= (1.0 - nearby_discount * 0.8)  # multiply by 0.2 where nearby
             # Removals: had something, now empty
             removed_lc = changed & cur_had & ~now_has
             remove_cost = (3.0 + cur_imp_lc.unsqueeze(0) * 1.0 + imp_sq * 0.02) * removed_lc.float()
-            remove_cost += (cur_imp_lc.unsqueeze(0) * 150.0) * (removed_lc.float() * self.t_l2_protected.unsqueeze(0))
+            remove_cost += (cur_imp_lc.unsqueeze(0) * 150.0) * (removed_lc.float() * self.t_mouse_protected.unsqueeze(0))
             # Additions: was empty, now has something
             added = changed & ~cur_had & now_has
             add_cost = 0.3 * added.float()
@@ -1191,13 +1339,38 @@ class FitnessEvaluator:
         layer_for_pos = self.t_layer.unsqueeze(0).expand(B, -1)
         layer_usage_for_pos = self.t_layer_usage_mult[t_g, layer_for_pos]
         placement_reward = (imp * assigned_f * 8.0 * layer_usage_for_pos).sum(dim=1)
+        pw_weight = float(self.weights.get("position_waste", 5.0))
+        prime_mask = (self.t_effort <= 1.5).unsqueeze(0).float()
         position_waste = (
-            (4.0 - imp).clamp(min=0) *
+            (6.0 - imp).clamp(min=0).pow(2) *
             (2.0 - self.t_effort.unsqueeze(0)).clamp(min=0) *
-            float(self.weights.get("position_waste", 2.0)) *
+            pw_weight *
             assigned_f
         ).sum(dim=1)
-        effort_total = effort_raw + position_waste + finger_balance + sfp + unassign_effort + lc - placement_reward
+        # Empty prime positions (eff<=1.5) are worse than any filled position
+        # when unplaced shortcuts exist. Penalize empty prime positions.
+        empty_prime = prime_mask * (1.0 - assigned_f) * (self.t_layer.unsqueeze(0) > 0).float()
+        position_waste += (empty_prime * 30.0 * pw_weight).sum(dim=1)
+        eff_over = (eff - 2.0).clamp(min=0)
+        extreme_mult = 1.0 + (eff_over >= 3.0).float() * 2.0
+        high_imp_misplacement = (
+            (imp >= 8.0).float() *
+            eff_over.pow(2) * extreme_mult *
+            imp *
+            float(self.weights.get("high_importance_misplacement", 1.5)) *
+            assigned_f
+        ).sum(dim=1)
+        importance_alignment = (
+            (imp - 4.0).clamp(min=0) *
+            (4.0 - eff).clamp(min=0) *
+            float(self.weights.get("importance_effort_alignment", 2.5)) *
+            assigned_f
+        ).sum(dim=1)
+        effort_total = (
+            effort_raw + position_waste + high_imp_misplacement +
+            finger_balance + sfp + unassign_effort + lc -
+            placement_reward - importance_alignment
+        )
 
         # ── ADJACENCY ──
         # For each conjunction pair (a,b,w): look up where a and b are placed,
@@ -1291,15 +1464,17 @@ class FitnessEvaluator:
         imp_per_sid = self.t_importance[:S].unsqueeze(0).clamp(min=1.0) * 0.5
         cl_bonus = (same_coord.float() * sid_count_cl[:, :S] * sid_pw[:, :S] * imp_per_sid).sum(dim=1)
 
-        # Trackball proximity (simplified: right-hand mouse layer bonus)
+        # Trackball proximity: right-hand keys on synthetic mouse layers
+        # get bonus (right hand near keyboard AND trackball). Left-hand mouse
+        # layers get no right-hand bonus (right hand is on trackball, not keyboard).
         tb_bonus = torch.zeros(B, device=d)
-        mouse_layer_mask = (self.t_layer == 2).unsqueeze(0) & (self.t_hand.unsqueeze(0) == 1) & assigned
-        tb_bonus = (mouse_layer_mask.float() * imp * 0.2).sum(dim=1)
-        right_non_l2_mouse = (self.t_hand.unsqueeze(0) == 1) & \
-                             (self.t_layer.unsqueeze(0) != 2) & \
-                             (self.t_y_arr.unsqueeze(0) >= 2) & \
-                             (self.t_mouse_related[t_g] > 0) & assigned
-        tb_bonus += (right_non_l2_mouse.float() * imp * 0.1).sum(dim=1)
+        synth_right_mask = self.t_is_synthetic_mouse.unsqueeze(0) & (self.t_hand.unsqueeze(0) == 1) & assigned
+        tb_bonus = (synth_right_mask.float() * imp * 0.2).sum(dim=1)
+        right_non_mouse = (self.t_hand.unsqueeze(0) == 1) & \
+                          (~self.t_is_any_mouse_layer).unsqueeze(0) & \
+                          (self.t_y_arr.unsqueeze(0) >= 2) & \
+                          (self.t_mouse_related[t_g] > 0) & assigned
+        tb_bonus += (right_non_mouse.float() * imp * 0.1).sum(dim=1)
 
         # App coherence: reward shortcuts sharing primary app on same layer
         ac_bonus = torch.zeros(B, device=d)
@@ -1321,15 +1496,19 @@ class FitnessEvaluator:
             avg_imp = la_imp / la_count.clamp(min=1)
             ac_bonus = (has_cluster * la_count * avg_imp * 0.3).sum(dim=1)
 
-        # Mouse accessibility: reward functional one-handed mouse mode
+        # Mouse accessibility: reward functional mouse modes
+        # Left-hand mode: left-thumb momentary, right hand on trackball
+        # Synthetic mode: toggled or left-momentary, right hand near keyboard+trackball
         ma_bonus = torch.zeros(B, device=d)
         mb_weights = {'1': 2.0, '2': 1.5, '3': 1.0, '4': 0.3, '5': 0.3}
-        is_l2 = (self.t_layer == 2).unsqueeze(0)
+        is_lhm = self.t_is_left_mouse_layer.unsqueeze(0)
+        is_synth = self.t_is_synthetic_mouse.unsqueeze(0)
+        is_right_mom = self.t_is_right_thumb_mom.unsqueeze(0)
         is_left = (self.t_hand.unsqueeze(0) == 0)
         low_eff = (self.t_effort <= 2).unsqueeze(0)
         med_eff = ((self.t_effort > 2) & (self.t_effort <= 3)).unsqueeze(0)
 
-        l2_mb_count = torch.zeros(B, device=d)
+        lhm_mb_count = torch.zeros(B, device=d)
         for mb_num, mb_w in mb_weights.items():
             mb_sid = self.mouse_button_sids.get(mb_num)
             if mb_sid is None:
@@ -1338,69 +1517,109 @@ class FitnessEvaluator:
                 continue
             mb_mask = (t_g == mb_sid) & assigned
             has_any = mb_mask.any(dim=1).float()
-            on_l2 = mb_mask & is_l2
-            on_l2_left = on_l2 & is_left
-            on_l2_right = on_l2 & ~is_left
+            on_lhm = mb_mask & is_lhm
+            on_lhm_left = on_lhm & is_left
+            on_lhm_right = on_lhm & ~is_left
 
             if mb_num in ('1', '2', '3'):
                 ma_bonus -= (1.0 - has_any) * 40.0 * mb_w
-                l2_mb_count += on_l2.any(dim=1).float()
-                # Heavy penalty for MB1/2/3 on L2 right hand (can't reach during mouse mode)
-                ma_bonus -= on_l2_right.any(dim=1).float() * 60.0 * mb_w
+                lhm_mb_count += on_lhm.any(dim=1).float()
+                # Penalty: MB1-3 on left-mouse-layer right hand (can't reach during trackball)
+                ma_bonus -= on_lhm_right.any(dim=1).float() * 60.0 * mb_w
+                # Penalty: MB1-3 on right-thumb momentary (blocks trackball)
+                on_rtm = mb_mask & is_right_mom
+                ma_bonus -= on_rtm.any(dim=1).float() * 500.0 * mb_w
 
-            # CPU path uses the best placement for each mouse button, not the
-            # sum of all duplicates. Keep the batch signal aligned so duplicate
-            # mouse buttons do not become an accidental reward hack.
-            left_score = (on_l2_left.float() * (14.0 * mb_w) +
-                          (on_l2_left & low_eff).float() * (4.0 * mb_w) +
-                          (on_l2_left & med_eff).float() * (2.0 * mb_w))
-            right_score = on_l2_right.float() * (1.0 * mb_w)
-            best_score = torch.maximum(left_score, right_score).max(dim=1).values
-            ma_bonus += best_score
+            # Left-hand mouse mode: best placement per button
+            left_score = (on_lhm_left.float() * (14.0 * mb_w) +
+                          (on_lhm_left & low_eff).float() * (4.0 * mb_w) +
+                          (on_lhm_left & med_eff).float() * (2.0 * mb_w))
+            right_score = on_lhm_right.float() * (1.0 * mb_w)
+            best_lhm = torch.maximum(left_score, right_score).max(dim=1).values
+            ma_bonus += best_lhm
+
+            # Synthetic mouse mode: MB on any synthetic-capable layer
+            on_synth = mb_mask & is_synth
+            on_synth_right = on_synth & ~is_left
+            on_synth_left = on_synth & is_left
+            synth_score = (on_synth_right.float() * (10.0 * mb_w) +
+                           on_synth_left.float() * (6.0 * mb_w) +
+                           (on_synth & low_eff).float() * (3.0 * mb_w))
+            ma_bonus += synth_score.max(dim=1).values
 
         if self.exact_gpu_scoring and self.t_critical_mb_sids.numel() > 0:
             crit_slots = sid_slots[:, self.t_critical_mb_sids, :].reshape(B, -1)
             crit_valid = crit_slots < N
             crit_slots_clamped = crit_slots.clamp(max=N - 1)
             crit_layers = self.t_layer_ext[crit_slots]
+            crit_left_mouse = self.t_is_left_mouse_layer[crit_slots_clamped] & (self.t_hand[crit_slots_clamped] == 0) & crit_valid
             crit_dist = self.t_group_manhattan[crit_slots_clamped.unsqueeze(2), crit_slots_clamped.unsqueeze(1)]
             crit_pair_valid = crit_valid.unsqueeze(2) & crit_valid.unsqueeze(1) & \
                               torch.triu(torch.ones(crit_slots.shape[1], crit_slots.shape[1], device=d, dtype=torch.bool), diagonal=1).unsqueeze(0)
+            best_left_mouse_layer_count = torch.zeros(B, device=d)
             for layer_id in self.unique_layers:
                 lm = crit_valid & (crit_layers == layer_id)
                 n_layer = lm.sum(dim=1).float()
                 ma_bonus += (n_layer >= 3).float() * 15.0
                 ma_bonus += ((n_layer >= 2) & (n_layer < 3)).float() * 5.0
+                left_lm = lm & crit_left_mouse
+                n_left_lm = left_lm.sum(dim=1).float()
+                best_left_mouse_layer_count = torch.maximum(best_left_mouse_layer_count, n_left_lm)
+                ma_bonus += (n_left_lm >= 3).float() * 90.0
+                ma_bonus += ((n_left_lm >= 2) & (n_left_lm < 3)).float() * 20.0
                 pair_mask = lm.unsqueeze(2) & lm.unsqueeze(1) & crit_pair_valid
                 close2 = pair_mask & (crit_dist <= 2)
                 close3 = pair_mask & (crit_dist > 2) & (crit_dist <= 3)
                 ma_bonus += close2.sum(dim=(1, 2)).float() * 4.0
                 ma_bonus += close3.sum(dim=(1, 2)).float() * 2.0
+            ma_bonus -= (3.0 - best_left_mouse_layer_count).clamp(min=0) * 25.0
         elif not self.exact_gpu_scoring:
-            ma_bonus += (l2_mb_count >= 3).float() * 15.0
-            ma_bonus += ((l2_mb_count >= 2) & (l2_mb_count < 3)).float() * 5.0
+            ma_bonus += (lhm_mb_count >= 3).float() * 15.0
+            ma_bonus += ((lhm_mb_count >= 2) & (lhm_mb_count < 3)).float() * 5.0
+            best_left_mouse_layer_count = torch.zeros(B, device=d)
+            for layer_id in self.unique_layers:
+                layer_left = self.t_layer_masks[layer_id].unsqueeze(0) & is_lhm & is_left & assigned
+                n_left_lm = torch.zeros(B, device=d)
+                for mb_num in ('1', '2', '3'):
+                    mb_sid = self.mouse_button_sids.get(mb_num)
+                    if mb_sid is not None:
+                        n_left_lm += ((t_g == mb_sid) & layer_left).any(dim=1).float()
+                best_left_mouse_layer_count = torch.maximum(best_left_mouse_layer_count, n_left_lm)
+            ma_bonus += (best_left_mouse_layer_count >= 3).float() * 90.0
+            ma_bonus += ((best_left_mouse_layer_count >= 2) & (best_left_mouse_layer_count < 3)).float() * 20.0
+            ma_bonus -= (3.0 - best_left_mouse_layer_count).clamp(min=0) * 25.0
 
-        l2_left_filled = (assigned & is_l2 & is_left).float().sum(dim=1)
-        ma_bonus += l2_left_filled.clamp(max=15) * 1.5
+        # Left-hand mouse layer fill bonus
+        lhm_left_filled = (assigned & is_lhm & is_left).float().sum(dim=1)
+        ma_bonus += lhm_left_filled.clamp(max=15) * 1.5
 
+        # Synthetic mouse layer fill bonus
+        synth_filled = (assigned & is_synth).float().sum(dim=1)
+        ma_bonus += synth_filled.clamp(max=10) * 1.0
+
+        # Clipboard on left-hand mouse layers (left hand)
         for clip_key in ['Ctrl+C', 'Ctrl+V', 'Ctrl+Z', 'Ctrl+X']:
             clip_sids = self.t_clipboard_sids.get(clip_key)
             if clip_sids is not None and clip_sids.numel() > 0:
-                clip_mask = (t_g == clip_sids[0]) & assigned & is_l2 & is_left
+                clip_mask = (t_g == clip_sids[0]) & assigned & is_lhm & is_left
                 ma_bonus += clip_mask.any(dim=1).float() * 6.0
 
         clipboard_keys = [self.t_clipboard_sids[k][0] for k in ['Ctrl+C', 'Ctrl+V', 'Ctrl+Z', 'Ctrl+X']
                           if self.t_clipboard_sids[k].numel() > 0]
         if clipboard_keys:
             clip_t = torch.stack(clipboard_keys)
-            l2_left_sids = t_g.masked_fill(~(assigned & is_l2 & is_left), S)
-            clipboard_present = (l2_left_sids.unsqueeze(2) == clip_t.unsqueeze(0).unsqueeze(0)).any(dim=1)
+            lhm_left_sids = t_g.masked_fill(~(assigned & is_lhm & is_left), S)
+            clipboard_present = (lhm_left_sids.unsqueeze(2) == clip_t.unsqueeze(0).unsqueeze(0)).any(dim=1)
             ma_bonus += (clipboard_present.sum(dim=1) >= 3).float() * 8.0
 
+        # Nav utility on left-hand mouse layers and synthetic mouse layers
         if self.t_nav_utility_sids.numel() > 0:
-            l2_left_sids = t_g.masked_fill(~(assigned & is_l2 & is_left), S)
-            nav_present = (l2_left_sids.unsqueeze(2) == self.t_nav_utility_sids.unsqueeze(0).unsqueeze(0)).any(dim=1)
-            ma_bonus += nav_present.sum(dim=1).float() * 4.0
+            lhm_left_sids = t_g.masked_fill(~(assigned & is_lhm & is_left), S)
+            nav_present_lhm = (lhm_left_sids.unsqueeze(2) == self.t_nav_utility_sids.unsqueeze(0).unsqueeze(0)).any(dim=1)
+            ma_bonus += nav_present_lhm.sum(dim=1).float() * 4.0
+            synth_sids = t_g.masked_fill(~(assigned & is_synth), S)
+            nav_present_synth = (synth_sids.unsqueeze(2) == self.t_nav_utility_sids.unsqueeze(0).unsqueeze(0)).any(dim=1)
+            ma_bonus += nav_present_synth.sum(dim=1).float() * 2.0
 
         # Group placement reward: GPU approximation of _group_placement_score.
         gp_bonus = torch.zeros(B, device=d)
@@ -1422,12 +1641,36 @@ class FitnessEvaluator:
                 effort_quality = (1.0 - avg_effort / 8.0).clamp(min=0)
                 gp_bonus += torch.where(enough, effort_quality * max_imp * max_usage * member_count, torch.zeros_like(gp_bonus))
 
+        relation_bonus = torch.zeros(B, device=d)
+        if self.t_relationship_sid_a.numel() > 0:
+            sid_pos_rel = torch.full((B, S + 1), -1, device=d, dtype=torch.long)
+            pos_idx_rel = self.t_pos_idx.unsqueeze(0).expand(B, -1)
+            sid_pos_rel.scatter_reduce_(1, t_g, pos_idx_rel, reduce="amax", include_self=True)
+            ca = self.t_relationship_sid_a
+            cb = self.t_relationship_sid_b
+            rw = self.t_relationship_weight
+            pa = sid_pos_rel.gather(1, ca.unsqueeze(0).expand(B, -1))
+            pb = sid_pos_rel.gather(1, cb.unsqueeze(0).expand(B, -1))
+            valid = (pa >= 0) & (pb >= 0)
+            pa_c = pa.clamp(min=0, max=N - 1)
+            pb_c = pb.clamp(min=0, max=N - 1)
+            same_layer = valid & (self.t_layer[pa_c] == self.t_layer[pb_c])
+            same_hand = same_layer & (self.t_hand[pa_c] == self.t_hand[pb_c])
+            dist = (self.t_x_arr[pa_c] - self.t_x_arr[pb_c]).abs() + \
+                   (self.t_y_arr[pa_c] - self.t_y_arr[pb_c]).abs()
+            layer_switch = self.t_layer_switch_cost[self.t_layer[pa_c], self.t_layer[pb_c]]
+            near_reward = same_hand.float() * (5.0 - dist.float()).clamp(min=0) * 1.6 * rw.unsqueeze(0)
+            split_hand_penalty = (same_layer & ~same_hand).float() * 3.0 * rw.unsqueeze(0)
+            split_layer_penalty = (valid & ~same_layer).float() * (4.0 + layer_switch) * rw.unsqueeze(0)
+            relation_bonus = (near_reward - split_hand_penalty - split_layer_penalty).sum(dim=1)
+
         adj_total = adj_scores * self.weights.get("adjacency", 1.5) + \
                     thumb_util * self.weights.get("thumb_utilization", 3.0) + \
                     cl_bonus * self.weights.get("cross_layer_consistency", 2.0) + \
                     tb_bonus * self.weights.get("trackball_proximity", 1.5) + \
                     gp_bonus * self.weights.get("group_placement", 2.0) + \
                     ac_bonus * self.weights.get("app_coherence", 3.0) + \
+                    relation_bonus * self.weights.get("relationship_awareness", 1.0) + \
                     ma_bonus * self.weights.get("mouse_accessibility", 5.0)
 
         # ── VIOLATIONS ──
@@ -1578,7 +1821,7 @@ class FitnessEvaluator:
             mb_t = self.t_all_mouse_button_sids
             mb_imp = self.t_importance[mb_t].clamp(min=10.0)
             present_mb = sid_present[:, mb_t]
-            missing_viol += ((~present_mb).float() * mb_imp.unsqueeze(0).pow(2) * 3.0).sum(dim=1)
+            missing_viol += ((~present_mb).float() * mb_imp.unsqueeze(0).pow(2) * 20.0).sum(dim=1)
 
         # Momentary redundancy: penalize base-accessible shortcuts on momentary layers
         # Complexity-aware: 3-key combos get reduced penalty (justified on layers)
@@ -1650,10 +1893,44 @@ class FitnessEvaluator:
                         structural_dupe_viol += excess.pow(2) * 10.0
             for target_id in target_ids:
                 for mode_id in mode_ids:
+                    if mode_id == getattr(self, "struct_exit_to_base_mode_id", -1):
+                        continue
                     group_mask = assigned & (cap_target == target_id) & (cap_mode == mode_id)
                     count = group_mask.sum(dim=1).float()
                     excess = (count - 3.0).clamp(min=0.0)
                     structural_dupe_viol += excess.pow(2) * 10.0
+
+        # Trackball workflow: MB1-3 and clipboard must be usable by the left
+        # hand while the right hand stays on the trackball.
+        mouse_workflow_viol = torch.zeros(B, device=d)
+        if self.t_critical_mb_sids.numel() > 0:
+            best_mb_count = torch.zeros(B, device=d)
+            for layer_id in self.left_hand_mouse_layers:
+                if layer_id not in self.t_layer_masks:
+                    continue
+                layer_left = self.t_layer_masks[layer_id].unsqueeze(0) & (self.t_hand.unsqueeze(0) == 0) & assigned
+                count = torch.zeros(B, device=d)
+                for mb_sid in self.t_critical_mb_sids:
+                    count += ((t_g == mb_sid.item()) & layer_left).any(dim=1).float()
+                best_mb_count = torch.maximum(best_mb_count, count)
+            mouse_workflow_viol += (3.0 - best_mb_count).clamp(min=0).pow(2) * 300.0
+
+        clipboard_keys = [
+            self.t_clipboard_sids[k][0]
+            for k in ['Ctrl+C', 'Ctrl+V', 'Ctrl+Z', 'Ctrl+X']
+            if self.t_clipboard_sids[k].numel() > 0
+        ]
+        if clipboard_keys:
+            best_clip_count = torch.zeros(B, device=d)
+            for layer_id in self.left_hand_mouse_layers:
+                if layer_id not in self.t_layer_masks:
+                    continue
+                layer_left = self.t_layer_masks[layer_id].unsqueeze(0) & (self.t_hand.unsqueeze(0) == 0) & assigned
+                count = torch.zeros(B, device=d)
+                for clip_sid in clipboard_keys:
+                    count += ((t_g == clip_sid.item()) & layer_left).any(dim=1).float()
+                best_clip_count = torch.maximum(best_clip_count, count)
+            mouse_workflow_viol += (3.0 - best_clip_count).clamp(min=0).pow(2) * 80.0
 
         # Layer redundancy: penalize pairs where the same app dominates both layers.
         # Mixed layers are allowed; this targets "four VS Code layers" style collapse.
@@ -1696,6 +1973,7 @@ class FitnessEvaluator:
                      redundancy_viol * self.weights.get("momentary_redundancy", 5.0) + \
                      cross_dupe_viol * self.weights.get("cross_layer_duplicate", 8.0) + \
                      structural_dupe_viol * self.weights.get("structural_duplicate", 10.0) + \
+                     mouse_workflow_viol * self.weights.get("violations", 10.0) + \
                      layer_redund_viol * self.weights.get("layer_redundancy", 12.0)
 
         # Toggled layer base requirement: penalize toggled layers without coach_base anywhere
@@ -1721,6 +1999,17 @@ class FitnessEvaluator:
         frozen_l0_dupes = self.t_frozen_l0_sid[t_g] * assigned_f * duplicate_candidate_pos
         frozen_l0_dupe_viol = (frozen_l0_dupes * (50.0 + imp * 5.0)).sum(dim=1)
         viol_total += frozen_l0_dupe_viol * self.weights.get("violations", 10.0)
+
+        # L0 open position premium: L0 mutable thumbs are for structural keys
+        # (coach holds, mouse buttons, modifiers, layer switches). Content keys
+        # (arrows, F-keys, shortcuts) do not belong here regardless of importance.
+        l0_open = self.t_l0_open_pos.unsqueeze(0)  # (1, N)
+        worthy = self.t_l0_thumb_worthy[t_g]  # (B, N) — 1.0 if key belongs on L0 thumb
+        unworthy_on_open = l0_open * assigned_f * (1.0 - worthy)
+        l0_open_viol = (unworthy_on_open * 2500.0).sum(dim=1)
+        empty_l0_open = l0_open * (1.0 - assigned_f)
+        l0_open_viol += (empty_l0_open * 500.0).sum(dim=1)
+        viol_total += l0_open_viol * self.weights.get("violations", 10.0)
 
         e = effort_total.cpu().numpy()
         a = adj_total.cpu().numpy()
@@ -1972,6 +2261,7 @@ class FitnessEvaluator:
             "effort": self._effort_score(genome),
             "adjacency": self._adjacency_score(genome),
             "violations": self._violation_score(genome),
+            "violation_breakdown": self.violation_breakdown(genome),
             "layer_access_valid": access_valid,
             "layer_exit_valid": exit_valid,
             "layer_access_cost": access_cost,
@@ -2086,18 +2376,61 @@ class FitnessEvaluator:
                 layer_mult = self.layer_usage_mult[sid, layer] if layer < self.layer_usage_mult.shape[1] else 1.0
                 placement_reward += self.importance_arr[sid] * 8.0 * layer_mult
         position_waste = self._position_waste_penalty(genome)
+        high_imp_misplacement = self._high_importance_misplacement_penalty(genome)
+        importance_alignment = self._importance_effort_alignment_bonus(genome)
         access_effort = self._layer_access_effort_penalty(genome, validation)
         demand_penalty = self._layer_demand_penalty(genome, validation)
-        return float(total * w + position_waste + access_effort + demand_penalty + fb + sfp + lc + unassign_eff - placement_reward)
+        return float(
+            total * w + position_waste + high_imp_misplacement +
+            access_effort + demand_penalty + fb + sfp + lc + unassign_eff -
+            placement_reward - importance_alignment
+        )
 
     def _position_waste_penalty(self, genome):
+        pw_weight = float(self.weights.get("position_waste", 5.0))
         penalty = 0.0
         for i, sid in enumerate(genome):
             if sid >= 0:
-                penalty += max(0.0, 4.0 - self.importance_arr[sid]) * \
-                    max(0.0, 2.0 - self.effort_arr[i]) * \
-                    float(self.weights.get("position_waste", 2.0))
+                penalty += max(0.0, 6.0 - self.importance_arr[sid]) ** 2 * \
+                    max(0.0, 2.0 - self.effort_arr[i]) * pw_weight
+            elif self.effort_arr[i] <= 1.5 and self.positions[i].layer > 0:
+                penalty += 30.0 * pw_weight
         return float(penalty)
+
+    def _high_importance_misplacement_penalty(self, genome):
+        """Push critical shortcuts away from top-row/edge reach positions."""
+        penalty = 0.0
+        weight = float(self.weights.get("high_importance_misplacement", 1.5))
+        for i, sid in enumerate(genome):
+            if sid < 0:
+                continue
+            imp = self.importance_arr[int(sid)]
+            if imp >= 8.0:
+                effective_effort = (
+                    self.effort_arr[i] +
+                    self.thumb_busy_extra[i] +
+                    self.toggled_layer_extra[i]
+                )
+                eff_over = max(0.0, effective_effort - 2.0)
+                extreme_mult = 3.0 if eff_over >= 3.0 else 1.0
+                penalty += eff_over ** 2 * extreme_mult * imp * weight
+        return float(penalty)
+
+    def _importance_effort_alignment_bonus(self, genome):
+        """Small reward for spending easy positions on genuinely important keys."""
+        bonus = 0.0
+        weight = float(self.weights.get("importance_effort_alignment", 0.25))
+        for i, sid in enumerate(genome):
+            if sid < 0:
+                continue
+            imp = self.importance_arr[int(sid)]
+            effective_effort = (
+                self.effort_arr[i] +
+                self.thumb_busy_extra[i] +
+                self.toggled_layer_extra[i]
+            )
+            bonus += max(0.0, imp - 4.0) * max(0.0, 4.0 - effective_effort) * weight
+        return float(bonus)
 
     def _adjacency_score(self, genome):
         if self._has_invalid_sids(genome):
@@ -2135,8 +2468,34 @@ class FitnessEvaluator:
         tb_bonus = self._trackball_proximity(genome) * self.weights.get("trackball_proximity", 1.5)
         gp_bonus = self._group_placement_score(genome) * self.weights.get("group_placement", 2.0)
         ac_bonus = self._app_coherence_score(genome) * self.weights.get("app_coherence", 3.0)
+        rel_bonus = self._relationship_awareness_score(genome) * self.weights.get("relationship_awareness", 1.0)
         ma_bonus = self._mouse_accessibility_score(genome) * self.weights.get("mouse_accessibility", 5.0)
-        return total * w + thumb_bonus + cl_bonus + tb_bonus + gp_bonus + ac_bonus + ma_bonus
+        return total * w + thumb_bonus + cl_bonus + tb_bonus + gp_bonus + ac_bonus + rel_bonus + ma_bonus
+
+    def _relationship_awareness_score(self, genome):
+        """Soft neighborhood score for related keys and shortcuts."""
+        pos_of_sid = {}
+        for i, sid in enumerate(genome):
+            if sid >= 0:
+                pos_of_sid[int(sid)] = i
+        score = 0.0
+        for sid_a, sid_b, weight in self.relationship_pairs:
+            pa = pos_of_sid.get(int(sid_a))
+            pb = pos_of_sid.get(int(sid_b))
+            if pa is None or pb is None:
+                continue
+            pos_a = self.positions[pa]
+            pos_b = self.positions[pb]
+            if pos_a.layer == pos_b.layer:
+                if pos_a.hand == pos_b.hand:
+                    dist = abs(pos_a.x - pos_b.x) + abs(pos_a.y - pos_b.y)
+                    score += max(0.0, 5.0 - dist) * 1.6 * weight
+                else:
+                    score -= 3.0 * weight
+            else:
+                switch_cost = self.layer_switch_cost_matrix[pos_a.layer, pos_b.layer]
+                score -= (4.0 + switch_cost) * weight
+        return float(score)
 
     def _violation_score(self, genome):
         if self._has_invalid_sids(genome):
@@ -2155,11 +2514,92 @@ class FitnessEvaluator:
         total += self._momentary_redundancy_penalty(genome) * self.weights.get("momentary_redundancy", 5.0)
         total += self._cross_layer_duplicate_penalty(genome) * self.weights.get("cross_layer_duplicate", 8.0)
         total += self._structural_duplicate_penalty(genome) * self.weights.get("structural_duplicate", 10.0)
+        total += self._mouse_workflow_violation(genome) * self.weights.get("violations", 10.0)
         total += self._layer_redundancy_penalty(genome) * self.weights.get("layer_redundancy", 12.0)
         total += self._toggled_base_violation(genome) * self.weights.get("violations", 10.0)
         total += self._l0_key_displacement_violation(genome) * self.weights.get("violations", 10.0)
         total += self._frozen_l0_duplicate_violation(genome) * self.weights.get("violations", 10.0)
+        total += self._l0_open_position_penalty(genome) * self.weights.get("violations", 10.0)
         return total
+
+    def violation_breakdown(self, genome):
+        """Return weighted violation components for debugging run quality."""
+        genome = np.array(genome, dtype=np.int32)
+        if self._has_invalid_sids(genome):
+            return {"invalid_sid": HARD_INVALID_FITNESS}
+        validation = self._layer_access_validation(genome)
+        if validation is not None and not validation.valid:
+            return {"layer_access_invalid": HARD_INVALID_FITNESS}
+
+        components = {
+            "group_split": self._group_split_violations(genome) * self.weights.get("group_split", 50.0),
+            "duplicate": self._duplicate_violations(genome) * self.weights.get("duplicate", 10.0),
+            "zmk_compatibility": self._zmk_compatibility(genome) * self.weights.get("zmk_compatibility", 20.0),
+            "unassignment": self._unassignment_penalty(genome) * self.weights.get("unassignment", 15.0),
+            "missing_important": self._missing_important_penalty(genome) * self.weights.get("missing_important", 15.0),
+            "momentary_redundancy": self._momentary_redundancy_penalty(genome) * self.weights.get("momentary_redundancy", 5.0),
+            "cross_layer_duplicate": self._cross_layer_duplicate_penalty(genome) * self.weights.get("cross_layer_duplicate", 8.0),
+            "structural_duplicate": self._structural_duplicate_penalty(genome) * self.weights.get("structural_duplicate", 10.0),
+            "mouse_workflow": self._mouse_workflow_violation(genome) * self.weights.get("violations", 10.0),
+            "layer_redundancy": self._layer_redundancy_penalty(genome) * self.weights.get("layer_redundancy", 12.0),
+            "toggled_base": self._toggled_base_violation(genome) * self.weights.get("violations", 10.0),
+            "l0_key_displacement": self._l0_key_displacement_violation(genome) * self.weights.get("violations", 10.0),
+            "frozen_l0_duplicate": self._frozen_l0_duplicate_violation(genome) * self.weights.get("violations", 10.0),
+            "l0_open_position": self._l0_open_position_penalty(genome) * self.weights.get("violations", 10.0),
+        }
+        components["total"] = sum(components.values())
+        return {name: float(value) for name, value in components.items()}
+
+    def _l0_open_position_penalty(self, genome):
+        """Penalize non-structural keys and empty slots on L0 mutable thumbs.
+        L0 thumbs are for coach holds, mouse buttons, modifiers, layer switches.
+        Content keys (arrows, F-keys, shortcuts) do not belong here."""
+        penalty = 0.0
+        for i in range(len(genome)):
+            if self.l0_open_pos_arr[i] < 1.0:
+                continue
+            sid = genome[i]
+            if sid < 0:
+                penalty += 500.0
+            elif self.l0_thumb_worthy[int(sid)] < 1.0:
+                penalty += 2500.0
+        return penalty
+
+    def _mouse_workflow_violation(self, genome):
+        """Penalize split mouse workflows for the right-hand trackball setup."""
+        best_mb_count = 0
+        for layer in self.left_hand_mouse_layers:
+            count = 0
+            for mb_num in ("1", "2", "3"):
+                mb_sid = self.mouse_button_sids.get(mb_num)
+                if mb_sid is None:
+                    continue
+                if any(
+                    int(sid) == int(mb_sid)
+                    and self.positions[i].layer == layer
+                    and self.positions[i].hand == "left"
+                    for i, sid in enumerate(genome)
+                ):
+                    count += 1
+            best_mb_count = max(best_mb_count, count)
+
+        clipboard_keys = {"Ctrl+C", "Ctrl+V", "Ctrl+Z", "Ctrl+X"}
+        best_clip_count = 0
+        for layer in self.left_hand_mouse_layers:
+            seen = set()
+            for i, sid in enumerate(genome):
+                if sid < 0:
+                    continue
+                pos = self.positions[i]
+                if pos.layer == layer and pos.hand == "left":
+                    key = self.pool[int(sid)].keys
+                    if key in clipboard_keys:
+                        seen.add(key)
+            best_clip_count = max(best_clip_count, len(seen))
+
+        penalty = max(0, 3 - best_mb_count) ** 2 * 300.0
+        penalty += max(0, 3 - best_clip_count) ** 2 * 80.0
+        return float(penalty)
 
     def _structural_duplicate_penalty(self, genome):
         """Penalize excessive equivalent layer-access keys."""
@@ -2175,7 +2615,8 @@ class FitnessEvaluator:
             source_key = (int(self.positions[i].layer), target, mode)
             global_key = (target, mode)
             per_source_counts[source_key] = per_source_counts.get(source_key, 0) + 1
-            global_counts[global_key] = global_counts.get(global_key, 0) + 1
+            if mode != getattr(self, "struct_exit_to_base_mode_id", -1):
+                global_counts[global_key] = global_counts.get(global_key, 0) + 1
         penalty = 0.0
         for count in per_source_counts.values():
             if count > 2:
@@ -2195,6 +2636,8 @@ class FitnessEvaluator:
             target = int(self.struct_cap_target_arr[int(sid)])
             mode = int(self.struct_cap_mode_arr[int(sid)])
             if target < 0 or mode < 0:
+                continue
+            if mode == getattr(self, "struct_exit_to_base_mode_id", -1):
                 continue
             key = (target, mode)
             counts[key] = counts.get(key, 0) + 1
@@ -2253,7 +2696,7 @@ class FitnessEvaluator:
             if s.sid in assigned_sids:
                 continue
             if s.sid in getattr(self, "mouse_button_required_sids", set()):
-                penalty += max(10.0, self.importance_arr[s.sid]) ** 2 * 3.0
+                penalty += max(10.0, self.importance_arr[s.sid]) ** 2 * 20.0
             if s.importance >= 9.0:
                 penalty += s.importance * s.importance * 2.0
             elif s.importance >= 3.0:
@@ -2284,6 +2727,8 @@ class FitnessEvaluator:
                 pos_of_sid.setdefault(int(sid), []).append(i)
         penalty = 0.0
         for sid_a, sid_b, weight in self.conj_pairs:
+            if sid_a == sid_b:
+                continue
             for pa in pos_of_sid.get(sid_a, []):
                 for pb in pos_of_sid.get(sid_b, []):
                     if self.layer_arr[pa] == self.layer_arr[pb]:
@@ -2299,6 +2744,8 @@ class FitnessEvaluator:
                 pos_of_sid.setdefault(int(sid), []).append(i)
         offenders = []
         for sid_a, sid_b, weight in self.conj_pairs:
+            if sid_a == sid_b:
+                continue
             total = 0.0
             examples = []
             for pa in pos_of_sid.get(sid_a, []):
@@ -2381,9 +2828,9 @@ class FitnessEvaluator:
             is_mouse_related = (s.app in ("windows",) and
                 any(kw in s.action.lower() for kw in ("click", "scroll", "mouse", "drag", "snap", "move")))
             if pos.hand == "right":
-                if pos.layer == 2:
+                if pos.layer in self.synthetic_mouse_layers:
                     bonus += self.importance_arr[sid] * 0.2
-                elif is_mouse_related and pos.y >= 2:
+                elif is_mouse_related and pos.y >= 2 and pos.layer not in self.any_mouse_layers:
                     bonus += self.importance_arr[sid] * 0.1
         return bonus
 
@@ -2434,12 +2881,12 @@ class FitnessEvaluator:
                 swap_cost = 1.0 + imp * 0.5 + imp * imp * 0.01
 
                 # L2 mouse button / clipboard protection
-                if i in self.l2_protected_positions:
+                if i in self.mouse_protected_positions:
                     swap_cost += imp * 100.0
 
-                # 3-tier shortcut value system (skip L2)
+                # 3-tier shortcut value system (skip mouse layers)
                 sid = ref[i]
-                if layer != 2:
+                if layer not in self.any_mouse_layers:
                     if sid in self.base_accessible_sids and self._shortcut_complexity(sid) <= 1.0:
                         swap_cost *= 0.3
                     elif sid not in self.base_accessible_sids:
@@ -2454,7 +2901,7 @@ class FitnessEvaluator:
                 # Nearby displacement discount: if the displaced key moved to a
                 # nearby position on the same layer, the change is barely noticeable.
                 # Skip L0 (touch typing muscle memory) and L2 protected (mouse buttons).
-                if layer != 0 and i not in self.l2_protected_positions:
+                if layer != 0 and i not in self.mouse_protected_positions:
                     old_sid = int(ref[i])
                     new_positions = pos_of_sid.get(old_sid, [])
                     nearby = False
@@ -2471,7 +2918,7 @@ class FitnessEvaluator:
             elif ref[i] >= 0 and genome[i] < 0:
                 imp = self.importance_arr[ref[i]]
                 remove_cost = 3.0 + imp * 1.0 + imp * imp * 0.02
-                if i in self.l2_protected_positions:
+                if i in self.mouse_protected_positions:
                     remove_cost += imp * 150.0
                 cost += remove_cost
             else:
@@ -2504,18 +2951,14 @@ class FitnessEvaluator:
         return bonus
 
     def _mouse_accessibility_score(self, genome):
-        """Reward a functional one-handed mouse mode layer.
+        """Reward functional mouse modes discovered by the optimizer.
 
-        The user holds L2 with left thumb, right hand on trackball. A good
-        mouse layer needs: MB1/2/3 grouped on left hand at low effort,
-        clipboard shortcuts (Ctrl+C/V/Z/X) on left hand, and common
-        navigation (Escape, Enter, Tab, arrows) accessible one-handed.
-
-        The reward is large enough that starting from scratch, the optimizer
-        will actively BUILD this layer structure."""
+        Left-hand mouse mode: left-thumb momentary hold, right hand on trackball.
+        Left hand does MB clicks, clipboard, navigation.
+        Synthetic mouse mode: toggled or left-momentary layer where right hand
+        stays near keyboard AND trackball for one-handed browsing."""
         bonus = 0.0
 
-        # --- Mouse button placement (per button, per instance) ---
         mb_positions = {}
         for i, sid in enumerate(genome):
             if sid < 0:
@@ -2533,40 +2976,71 @@ class FitnessEvaluator:
                 if mb_num in critical_mbs:
                     bonus -= 40.0 * mb_w
                 continue
-            best_score = 0
-            has_l2_right = False
+
+            # Left-hand mouse mode: best placement per button
+            best_lhm = 0
+            has_lhm_right = False
             for i, pos in placements:
                 score = 0
-                if pos.layer == 2:
+                if pos.layer in self.left_hand_mouse_layers:
                     if pos.hand == "left":
-                        score += 8.0 * mb_w
-                        score += 6.0 * mb_w
+                        score += 14.0 * mb_w
                         if pos.effort <= 2:
                             score += 4.0 * mb_w
                         elif pos.effort <= 3:
                             score += 2.0 * mb_w
                     else:
                         score += 1.0 * mb_w
-                        if mb_num in ('1', '2', '3'):
-                            has_l2_right = True
-                best_score = max(best_score, score)
-            bonus += best_score
-            if has_l2_right:
+                        if mb_num in critical_mbs:
+                            has_lhm_right = True
+                best_lhm = max(best_lhm, score)
+            bonus += best_lhm
+            if has_lhm_right:
                 bonus -= 60.0 * mb_w
 
-        # --- MB grouping: reward MB1/2/3 clustered together on same layer ---
+            # Synthetic mouse mode: best placement per button
+            best_synth = 0
+            for i, pos in placements:
+                score = 0
+                if pos.layer in self.synthetic_mouse_layers:
+                    if pos.hand == "right":
+                        score += 10.0 * mb_w
+                    else:
+                        score += 6.0 * mb_w
+                    if pos.effort <= 2:
+                        score += 3.0 * mb_w
+                best_synth = max(best_synth, score)
+            bonus += best_synth
+
+            if mb_num in critical_mbs:
+                # Right-thumb momentary penalty: blocks trackball
+                has_rtm = any(pos.layer in self.right_thumb_momentary_layers for _, pos in placements)
+                if has_rtm:
+                    bonus -= 500.0 * mb_w
+
+        # MB grouping: reward MB1/2/3 clustered together on same layer
+        best_left_mouse_layer_count = 0
         for layer in set(self.positions[i].layer for _, (i, _) in
                          ((0, x) for placements in mb_positions.values() for x in placements)):
             layer_mb_pos = []
+            layer_left_mouse_pos = []
             for mb_num in critical_mbs:
                 for i, pos in mb_positions.get(mb_num, []):
                     if pos.layer == layer:
                         layer_mb_pos.append(pos)
+                        if pos.layer in self.left_hand_mouse_layers and pos.hand == "left":
+                            layer_left_mouse_pos.append(pos)
             n = len(layer_mb_pos)
             if n >= 3:
                 bonus += 15.0
             elif n >= 2:
                 bonus += 5.0
+            n_left_mouse = len(layer_left_mouse_pos)
+            best_left_mouse_layer_count = max(best_left_mouse_layer_count, n_left_mouse)
+            if n_left_mouse >= 3:
+                bonus += 90.0
+            elif n_left_mouse >= 2:
+                bonus += 20.0
             for a in range(len(layer_mb_pos)):
                 for b in range(a + 1, len(layer_mb_pos)):
                     dist = abs(layer_mb_pos[a].x - layer_mb_pos[b].x) + \
@@ -2575,29 +3049,45 @@ class FitnessEvaluator:
                         bonus += 4.0
                     elif dist <= 3:
                         bonus += 2.0
+        bonus -= max(0, 3 - best_left_mouse_layer_count) * 25.0
 
-        # --- One-handed workflow completeness on L2 ---
-        l2_left_shortcuts = set()
-        l2_left_count = 0
+        # Left-hand mouse mode workflow completeness
+        lhm_left_shortcuts = set()
+        lhm_left_count = 0
         for i in range(len(genome)):
-            if genome[i] < 0 or self.positions[i].layer != 2:
+            if genome[i] < 0:
                 continue
-            if self.positions[i].hand == "left":
+            pos = self.positions[i]
+            if pos.layer in self.left_hand_mouse_layers and pos.hand == "left":
                 s = self.pool[genome[i]]
-                l2_left_shortcuts.add(s.keys)
-                l2_left_count += 1
+                lhm_left_shortcuts.add(s.keys)
+                lhm_left_count += 1
 
         clipboard_keys = {'Ctrl+C', 'Ctrl+V', 'Ctrl+Z', 'Ctrl+X'}
-        clipboard_on_l2 = len(clipboard_keys & l2_left_shortcuts)
-        bonus += clipboard_on_l2 * 6.0
-        if clipboard_on_l2 >= 3:
+        clipboard_on_lhm = len(clipboard_keys & lhm_left_shortcuts)
+        bonus += clipboard_on_lhm * 6.0
+        if clipboard_on_lhm >= 3:
             bonus += 8.0
 
         nav_utility = {'Ctrl+A', 'Ctrl+W', 'Ctrl+Y', 'Escape', 'Enter', 'Tab', 'Delete'}
-        nav_on_l2 = len(nav_utility & l2_left_shortcuts)
-        bonus += nav_on_l2 * 4.0
+        nav_on_lhm = len(nav_utility & lhm_left_shortcuts)
+        bonus += nav_on_lhm * 4.0
+        bonus += min(lhm_left_count, 15) * 1.5
 
-        bonus += min(l2_left_count, 15) * 1.5
+        # Synthetic mouse mode: nav utility on any synthetic-capable layer
+        synth_shortcuts = set()
+        synth_count = 0
+        for i in range(len(genome)):
+            if genome[i] < 0:
+                continue
+            pos = self.positions[i]
+            if pos.layer in self.synthetic_mouse_layers:
+                s = self.pool[genome[i]]
+                synth_shortcuts.add(s.keys)
+                synth_count += 1
+        nav_on_synth = len(nav_utility & synth_shortcuts)
+        bonus += nav_on_synth * 2.0
+        bonus += min(synth_count, 10) * 1.0
 
         return bonus
 
@@ -2619,18 +3109,13 @@ class FitnessEvaluator:
                     if sid in group["sids"]:
                         gp.append(self.positions[i])
             else:
-                params = [p.upper() for p in group.get("params", [])]
-                mods_req = group.get("mods_required", "")
                 gp = []
                 for i, sid in enumerate(genome):
                     if sid < 0:
                         continue
                     s = self.pool[sid]
-                    if s.base_key.upper() not in params:
-                        continue
-                    if mods_req and not any(mods_req.lower() in m.lower() for m in s.modifiers):
-                        continue
-                    gp.append(self.positions[i])
+                    if shortcut_matches_group(s, group):
+                        gp.append(self.positions[i])
 
             if len(gp) < 2:
                 continue
@@ -2715,18 +3200,13 @@ class FitnessEvaluator:
             else:
                 if "behaviors" in group:
                     continue
-                params = [p.upper() for p in group.get("params", [])]
-                mods_req = group.get("mods_required", "")
                 members = []
                 for i, sid in enumerate(genome):
                     if sid < 0:
                         continue
                     s = self.pool[sid]
-                    if s.base_key.upper() not in params:
-                        continue
-                    if mods_req and not any(mods_req.lower() in m.lower() for m in s.modifiers):
-                        continue
-                    members.append((i, sid))
+                    if shortcut_matches_group(s, group):
+                        members.append((i, sid))
 
             if len(members) < 2:
                 continue

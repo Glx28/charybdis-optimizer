@@ -1,10 +1,13 @@
 {
   "pop_size": 5000,
-  "generations": 100,
-  "checkpoint_interval": 10,
+  "generations": 10000,
+  "checkpoint_interval": 100,
   "verbose_logging": true,
-  "validation_cache_max_entries": 10000,
-  "diversity_injection_plateaus": [150, 300, 450],
+  "health_logging": false,
+  "health_logging_examples": false,
+  "health_sample_limit": 5,
+  "validation_cache_max_entries": 50000,
+  "diversity_injection_plateaus": [150, 300, 450, 700, 1000, 1500, 2000, 3000, 4000, 5000, 7000, 9000],
   "diversity_injection_rate": 0.02,
   "phase_window": 50,
   "balanced_min_improvement": 0.01,
@@ -23,7 +26,7 @@
   "weights": {
     "effort": 1.5,
     "adjacency": 2.0,
-    "violations": 30.0,
+    "violations": 50.0,
     "finger_balance": 1.0,
     "same_finger_penalty": 2.0,
     "thumb_utilization": 4.0,
@@ -43,9 +46,12 @@
     "momentary_redundancy": 8.0,
     "mouse_layer_bonus": 5.0,
     "app_coherence": 4.0,
-    "mouse_accessibility": 6.0,
+    "mouse_accessibility": 25.0,
+    "relationship_awareness": 1.2,
     "layer_switch_penalty": 0.5,
-    "position_waste": 2.0,
+    "position_waste": 5.0,
+    "high_importance_misplacement": 1.5,
+    "importance_effort_alignment": 4.0,
     "layer_access_effort": 1.0
   }
 }

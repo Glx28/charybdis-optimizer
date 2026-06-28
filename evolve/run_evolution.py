@@ -56,9 +56,15 @@ def _safe_replace(src, dst, retries=3):
 from representation import (
     build_position_index, build_shortcut_pool, build_layer_to_positions,
     encode_current_layout, decode_genome, build_scratch_genome, KEY_GROUPS,
+    is_frozen_l0_position,
+    shortcut_matches_group,
+    is_l0_thumb_worthy_shortcut,
 )
 from fitness import FitnessEvaluator
-from operators import custom_mutate, pmx_crossover, OperatorContext, GPU_OP_IDS
+from operators import (
+    custom_mutate, pmx_crossover, OperatorContext, GPU_OP_IDS,
+    repair_position_compatibility,
+)
 
 HAS_TORCH = False
 try:
@@ -197,46 +203,65 @@ def load_previous_elites(build_dir, n_positions, n_shortcuts, access_analyzer=No
     return unique
 
 
-def preseed_unplaced_shortcuts(genome, positions, shortcut_pool, layer_positions):
+def preseed_unplaced_shortcuts(genome, positions, shortcut_pool, layer_positions, verbose=True):
     """Place high-importance unassigned shortcuts into appropriate empty slots.
-    Also seeds mouse buttons onto L2 left-hand positions and clipboard onto L2."""
+    Also seeds mouse workflow keys onto a left-hand mouse layer."""
     from representation import is_universal_shortcut, LAYER_ACCESS
     genome = copy.copy(genome)
+
+    mouse_layers = [
+        layer for layer, access in LAYER_ACCESS.items()
+        if access.get("thumb") == "left" and "momentary" in access.get("method", "")
+    ]
+    mouse_layers.sort(key=lambda layer: (
+        0 if LAYER_ACCESS.get(layer, {}).get("method") == "momentary_or_locked" else 1,
+        min((p.effort for p in layer_positions.get(layer, []) if p.hand == "left"), default=99.0),
+        -sum(1 for p in layer_positions.get(layer, []) if p.hand == "left"),
+    ))
+    mouse_layer = next((layer for layer in mouse_layers
+                        if sum(1 for p in layer_positions.get(layer, []) if p.hand == "left") >= 7), None)
+
+    def place_sid_at(sid, target):
+        current_idx = next((i for i, gsid in enumerate(genome) if int(gsid) == sid), None)
+        if current_idx == target.gene_idx:
+            return False
+        old_target_sid = genome[target.gene_idx]
+        if current_idx is not None:
+            genome[current_idx], genome[target.gene_idx] = old_target_sid, sid
+            return True
+        if old_target_sid >= 0:
+            empty = next((p for layer_positions_list in layer_positions.values()
+                          for p in sorted(layer_positions_list, key=lambda q: (q.effort, q.layer, q.y, q.x))
+                          if genome[p.gene_idx] < 0 and p.gene_idx != target.gene_idx), None)
+            if empty is not None:
+                genome[empty.gene_idx] = old_target_sid
+        genome[target.gene_idx] = sid
+        return True
+
+    def seed_mouse_workflow():
+        if mouse_layer is None:
+            return 0
+        workflow_order = [
+            "_base_select:mb1", "_base_select:mb2", "_base_select:mb3",
+            "Ctrl+C", "Ctrl+V", "Ctrl+X", "Ctrl+Z", "Ctrl+A",
+        ]
+        sid_by_key = {s.keys: s.sid for s in shortcut_pool}
+        targets = sorted(
+            [p for p in layer_positions.get(mouse_layer, []) if p.hand == "left"],
+            key=lambda p: (p.effort, p.y, p.x),
+        )
+        seeded = 0
+        for key, target in zip(workflow_order, targets):
+            sid = sid_by_key.get(key)
+            if sid is not None and place_sid_at(sid, target):
+                seeded += 1
+        return seeded
+
+    seeded = seed_mouse_workflow()
+    if seeded and verbose:
+        print(f"  Pre-seeded {seeded} mouse workflow keys onto layer {mouse_layer} left hand")
+
     assigned_sids = set(int(g) for g in genome if g >= 0)
-
-    # Seed mouse buttons onto L2 left-hand low-effort positions first
-    l2_left_empty = sorted(
-        [p for p in layer_positions.get(2, [])
-         if genome[p.gene_idx] < 0 and p.hand == "left"],
-        key=lambda p: p.effort
-    )
-    mb_seeded = 0
-    for s in shortcut_pool:
-        if s.sid in assigned_sids:
-            continue
-        if 'select:mb' not in s.keys:
-            continue
-        if l2_left_empty:
-            p = l2_left_empty.pop(0)
-            genome[p.gene_idx] = s.sid
-            assigned_sids.add(s.sid)
-            mb_seeded += 1
-    if mb_seeded:
-        print(f"  Pre-seeded {mb_seeded} mouse buttons onto L2 left hand")
-
-    # Seed clipboard shortcuts onto L2 left hand
-    clipboard_keys = {'Ctrl+C', 'Ctrl+V', 'Ctrl+Z', 'Ctrl+X', 'Ctrl+A'}
-    clip_seeded = 0
-    for s in shortcut_pool:
-        if s.sid in assigned_sids or s.keys not in clipboard_keys:
-            continue
-        if l2_left_empty:
-            p = l2_left_empty.pop(0)
-            genome[p.gene_idx] = s.sid
-            assigned_sids.add(s.sid)
-            clip_seeded += 1
-    if clip_seeded:
-        print(f"  Pre-seeded {clip_seeded} clipboard shortcuts onto L2 left hand")
 
     unplaced = [s for s in shortcut_pool if s.sid not in assigned_sids
                 and s.category != "base_key" and s.importance >= 3.0]
@@ -269,7 +294,7 @@ def preseed_unplaced_shortcuts(genome, positions, shortcut_pool, layer_positions
                     unplaced.pop(idx)
                     free_thumb_seeded += 1
                     break
-    if free_thumb_seeded:
+    if free_thumb_seeded and verbose:
         print(f"  Pre-seeded {free_thumb_seeded} shortcuts into free-thumb positions")
 
     placed = 0
@@ -293,9 +318,71 @@ def preseed_unplaced_shortcuts(genome, positions, shortcut_pool, layer_positions
             genome[best_pos.gene_idx] = s.sid
             placed += 1
 
-    if placed > 0:
+    if placed > 0 and verbose:
         print(f"Pre-seeded {placed} high-importance shortcuts into empty slots")
+    genome = repair_seeded_groups(genome, positions, shortcut_pool, layer_positions)
+    seed_mouse_workflow()
     return genome
+
+
+def _static_group_sids(shortcut_pool, group):
+    if "params" not in group:
+        return set()
+    sids = set()
+    for s in shortcut_pool:
+        if shortcut_matches_group(s, group):
+            sids.add(s.sid)
+    return sids
+
+
+def repair_seeded_groups(genome, positions, shortcut_pool, layer_positions):
+    """Move true action groups together during seeding.
+
+    Mouse buttons are handled by the trackball workflow seeder/scoring. Other
+    action groups are workflows where layer-switching between members is nearly
+    always wrong.
+    """
+    repaired = list(genome)
+    pos_by_idx = {p.gene_idx: p for p in positions}
+    for group_name in ("arrows", "win_directions", "clipboard", "f_keys_low", "f_keys_high"):
+        group = next((g for g in KEY_GROUPS if g.get("name") == group_name), None)
+        if not group:
+            continue
+        sids = _static_group_sids(shortcut_pool, group)
+        members = [(i, int(sid)) for i, sid in enumerate(repaired) if sid in sids]
+        if len(members) < 2:
+            continue
+        layer_counts = {}
+        for idx, _sid in members:
+            layer_counts[pos_by_idx[idx].layer] = layer_counts.get(pos_by_idx[idx].layer, 0) + 1
+        target_layer = max(layer_counts, key=lambda layer: (layer_counts[layer], -layer))
+        hand_counts = {}
+        for idx, _sid in members:
+            p = pos_by_idx[idx]
+            if p.layer == target_layer:
+                hand_counts[p.hand] = hand_counts.get(p.hand, 0) + 1
+        target_hand = max(hand_counts, key=hand_counts.get) if hand_counts else "left"
+
+        target_members = [pos_by_idx[idx] for idx, _sid in members if pos_by_idx[idx].layer == target_layer]
+        cx = sum(p.x for p in target_members) / max(1, len(target_members))
+        cy = sum(p.y for p in target_members) / max(1, len(target_members))
+
+        empty_targets = [
+            p for p in layer_positions.get(target_layer, [])
+            if repaired[p.gene_idx] < 0 and p.hand == target_hand
+        ]
+        empty_targets.sort(key=lambda p: (abs(p.x - cx) + abs(p.y - cy), p.effort))
+
+        for idx, sid in members:
+            p = pos_by_idx[idx]
+            if p.layer == target_layer and p.hand == target_hand:
+                continue
+            if not empty_targets:
+                break
+            target = empty_targets.pop(0)
+            repaired[idx] = -1
+            repaired[target.gene_idx] = sid
+    return repaired
 
 
 def _exit_required_layers(access_analyzer=None):
@@ -386,7 +473,8 @@ def ensure_structural_exits(genome, positions, shortcut_pool, layer_positions, a
     return g, changed
 
 
-def population_diagnostics(population, positions, shortcut_pool, evaluator):
+def population_diagnostics(population, positions, shortcut_pool, evaluator,
+                           include_health=False, health_config=None):
     genomes = [list(ind) for ind in population]
     n = len(genomes)
     invalid_sid_rows = 0
@@ -451,7 +539,7 @@ def population_diagnostics(population, positions, shortcut_pool, evaluator):
         corr = float(np.corrcoef(np.array(imp_vals), np.array(effort_vals))[0, 1])
         if np.isnan(corr):
             corr = 0.0
-    return {
+    diagnostics = {
         "structural_validity": {"valid": structural_valid, "total": n, "ratio": structural_valid / max(n, 1)},
         "exit_coverage": {"required_layers": exit_required, "exit_counts": exit_counts, "missing_layers": sorted(missing_layers)},
         "sid_health": {"invalid_genomes": invalid_sid_rows, "stale_sid_count": stale_sid_count, "max_sid": max_sid, "pool_size": len(shortcut_pool)},
@@ -459,6 +547,11 @@ def population_diagnostics(population, positions, shortcut_pool, evaluator):
         "structural_capability_duplicates": worst_structural_dupe,
         "group_integrity": group_integrity_metrics(genomes, positions, shortcut_pool),
     }
+    if include_health:
+        diagnostics["layout_health"] = layout_health_metrics(
+            genomes, positions, shortcut_pool, evaluator, config=health_config or {}
+        )
+    return diagnostics
 
 
 def group_integrity_metrics(genomes, positions, shortcut_pool):
@@ -471,15 +564,7 @@ def group_integrity_metrics(genomes, positions, shortcut_pool):
             sids = [s.sid for s in shortcut_pool if s.keys.startswith("select:mb")]
             expected = len(sids)
         else:
-            params = [p.upper() for p in group.get("params", [])]
-            mods_req = group.get("mods_required", "")
-            sids = []
-            for s in shortcut_pool:
-                key_upper = s.keys.upper()
-                if mods_req and mods_req.upper() not in key_upper:
-                    continue
-                if any(param in key_upper for param in params):
-                    sids.append(s.sid)
+            sids = [s.sid for s in shortcut_pool if shortcut_matches_group(s, group)]
             expected = len(group.get("params", []))
         if expected >= 2 and len(sids) >= 2:
             groups[name] = {"sids": set(sids), "expected": expected, "spatial": name in ("arrows",)}
@@ -491,7 +576,7 @@ def group_integrity_metrics(genomes, positions, shortcut_pool):
         for genome in genomes:
             clusters = {}
             for i, sid in enumerate(genome):
-                if sid not in info["sids"]:
+                if int(sid) not in info["sids"]:
                     continue
                 pos = positions[i]
                 key = (pos.layer, pos.hand) if info["spatial"] else (pos.layer,)
@@ -508,6 +593,216 @@ def group_integrity_metrics(genomes, positions, shortcut_pool):
             "expected": info["expected"],
         }
     return result
+
+
+def _shortcut_key(shortcut):
+    return getattr(shortcut, "keys", str(shortcut))
+
+
+def _sid_key(shortcut_pool, sid):
+    if sid < 0:
+        return "<empty>"
+    if sid >= len(shortcut_pool):
+        return f"<stale:{sid}>"
+    return _shortcut_key(shortcut_pool[int(sid)])
+
+
+def _position_label(pos):
+    return f"L{pos.layer}:{pos.hand}:{pos.x},{pos.y}/e{pos.effort:g}"
+
+
+def _cluster_sids_by_layer_hand(genome, positions, shortcut_pool, sid_filter):
+    clusters = {}
+    for i, sid in enumerate(genome):
+        if sid < 0 or sid >= len(shortcut_pool):
+            continue
+        shortcut = shortcut_pool[int(sid)]
+        if not sid_filter(shortcut):
+            continue
+        pos = positions[i]
+        key = (pos.layer, pos.hand)
+        clusters.setdefault(key, []).append((i, shortcut, pos))
+    return clusters
+
+
+def layout_health_metrics(genomes, positions, shortcut_pool, evaluator, config=None, sample_limit=None):
+    """Broad health probes for live run debugging.
+
+    These diagnostics intentionally describe generic failure modes: scattered
+    workflows, empty valuable positions, illegal role placement, duplicate
+    pressure, and bad high-importance placement. They are not used for fitness.
+    """
+    config = config or {}
+    sample_limit = int(sample_limit if sample_limit is not None else config.get("health_sample_limit", 5))
+    sample_limit = max(0, sample_limit)
+    n = max(len(genomes), 1)
+    health = {
+        "workflow_clusters": {},
+        "role_violations": {"l0_bad_total": 0, "l0_empty_total": 0, "examples": []},
+        "prime_empty": {"total": 0, "with_unassigned_nonbase": 0, "examples": []},
+        "high_importance": {"bad_position_total": 0, "examples": []},
+        "duplicates": {"cross_layer_total": 0, "examples": []},
+    }
+
+    workflows = {
+        "mouse_critical": {
+            "expected": 3,
+            "filter": lambda s: s.keys in {"_base_select:mb1", "_base_select:mb2", "_base_select:mb3"},
+            "requires_left_mouse_layer": True,
+        },
+        "clipboard": {
+            "expected": 5,
+            "filter": lambda s: s.keys in {"Ctrl+A", "Ctrl+C", "Ctrl+V", "Ctrl+X", "Ctrl+Z"},
+            "requires_left_mouse_layer": True,
+        },
+        "mouse_buttons": {
+            "expected": 3,
+            "filter": lambda s: "select:mb" in s.keys,
+            "requires_left_mouse_layer": False,
+        },
+    }
+    left_mouse_layers = getattr(evaluator, "left_hand_mouse_layers", set()) if evaluator else set()
+    for name, spec in workflows.items():
+        health["workflow_clusters"][name] = {
+            "intact": 0,
+            "partial": 0,
+            "scattered": 0,
+            "best_avg": 0.0,
+            "bad_examples": [],
+        }
+
+    capability_sids = evaluator._capability_sid_set() if evaluator and hasattr(evaluator, "_capability_sid_set") else set()
+    for genome in genomes:
+        assigned = {int(sid) for sid in genome if sid >= 0 and sid < len(shortcut_pool)}
+        unassigned_nonbase = [
+            s for s in shortcut_pool
+            if s.sid not in assigned and s.category != "base_key"
+        ]
+
+        for name, spec in workflows.items():
+            clusters = _cluster_sids_by_layer_hand(genome, positions, shortcut_pool, spec["filter"])
+            best_key, best_members = max(clusters.items(), key=lambda kv: len(kv[1]), default=(None, []))
+            best_count = len(best_members)
+            health["workflow_clusters"][name]["best_avg"] += best_count
+            expected = spec["expected"]
+            usable_mouse = True
+            if spec["requires_left_mouse_layer"] and best_key is not None:
+                usable_mouse = best_key[0] in left_mouse_layers and best_key[1] == "left"
+            if best_count >= expected and usable_mouse:
+                health["workflow_clusters"][name]["intact"] += 1
+            elif best_count >= 2:
+                health["workflow_clusters"][name]["partial"] += 1
+                if sample_limit and len(health["workflow_clusters"][name]["bad_examples"]) < sample_limit:
+                    health["workflow_clusters"][name]["bad_examples"].append({
+                        "best_cluster": f"L{best_key[0]}:{best_key[1]}" if best_key else None,
+                        "best_count": best_count,
+                        "members": [_sid_key(shortcut_pool, genome[i]) for i, _s, _p in best_members[:expected]],
+                    })
+            else:
+                health["workflow_clusters"][name]["scattered"] += 1
+                if sample_limit and len(health["workflow_clusters"][name]["bad_examples"]) < sample_limit:
+                    placements = [
+                        f"{_sid_key(shortcut_pool, sid)}@{_position_label(positions[i])}"
+                        for i, sid in enumerate(genome)
+                        if sid >= 0 and sid < len(shortcut_pool) and spec["filter"](shortcut_pool[int(sid)])
+                    ]
+                    health["workflow_clusters"][name]["bad_examples"].append({
+                        "best_cluster": f"L{best_key[0]}:{best_key[1]}" if best_key else None,
+                        "best_count": best_count,
+                        "placements": placements[:expected + 2],
+                    })
+
+        for i, sid in enumerate(genome):
+            pos = positions[i]
+            if pos.layer == 0 and pos.is_thumb and not is_frozen_l0_position(pos):
+                if sid < 0:
+                    health["role_violations"]["l0_empty_total"] += 1
+                    if sample_limit and len(health["role_violations"]["examples"]) < sample_limit:
+                        health["role_violations"]["examples"].append(f"<empty>@{_position_label(pos)}")
+                elif sid >= len(shortcut_pool) or not is_l0_thumb_worthy_shortcut(shortcut_pool[int(sid)]):
+                    health["role_violations"]["l0_bad_total"] += 1
+                    if sample_limit and len(health["role_violations"]["examples"]) < sample_limit:
+                        health["role_violations"]["examples"].append(f"{_sid_key(shortcut_pool, sid)}@{_position_label(pos)}")
+
+            if sid < 0 and pos.layer != 0 and pos.effort <= 1.5:
+                health["prime_empty"]["total"] += 1
+                if unassigned_nonbase:
+                    health["prime_empty"]["with_unassigned_nonbase"] += 1
+                if sample_limit and len(health["prime_empty"]["examples"]) < sample_limit:
+                    top_unassigned = sorted(unassigned_nonbase, key=lambda s: -float(s.importance))[:3]
+                    health["prime_empty"]["examples"].append({
+                        "position": _position_label(pos),
+                        "unassigned_top": [f"{s.keys}:{s.importance:g}" for s in top_unassigned],
+                    })
+
+            if sid >= 0 and sid < len(shortcut_pool):
+                shortcut = shortcut_pool[int(sid)]
+                if shortcut.importance >= 8.0 and pos.effort >= 3.5:
+                    health["high_importance"]["bad_position_total"] += 1
+                    if sample_limit and len(health["high_importance"]["examples"]) < sample_limit:
+                        health["high_importance"]["examples"].append(
+                            f"{shortcut.keys}:{shortcut.importance:g}@{_position_label(pos)}"
+                        )
+
+        sid_layers = {}
+        for i, sid in enumerate(genome):
+            if sid >= 0 and sid < len(shortcut_pool) and int(sid) not in capability_sids:
+                sid_layers.setdefault(int(sid), set()).add(positions[i].layer)
+        for sid, layers in sid_layers.items():
+            if len(layers) >= 3:
+                health["duplicates"]["cross_layer_total"] += 1
+                if sample_limit and len(health["duplicates"]["examples"]) < sample_limit:
+                    health["duplicates"]["examples"].append(
+                        f"{_sid_key(shortcut_pool, sid)}@{sorted(layers)}"
+                    )
+
+    for workflow in health["workflow_clusters"].values():
+        workflow["intact_pct"] = workflow["intact"] / n
+        workflow["partial_pct"] = workflow["partial"] / n
+        workflow["scattered_pct"] = workflow["scattered"] / n
+        workflow["best_avg"] = workflow["best_avg"] / n
+    health["role_violations"]["l0_bad_avg"] = health["role_violations"]["l0_bad_total"] / n
+    health["role_violations"]["l0_empty_avg"] = health["role_violations"]["l0_empty_total"] / n
+    health["prime_empty"]["avg"] = health["prime_empty"]["total"] / n
+    health["prime_empty"]["actionable_avg"] = health["prime_empty"]["with_unassigned_nonbase"] / n
+    health["high_importance"]["bad_position_avg"] = health["high_importance"]["bad_position_total"] / n
+    health["duplicates"]["cross_layer_avg"] = health["duplicates"]["cross_layer_total"] / n
+    return health
+
+
+def format_layout_health(health, detailed=False):
+    lines = []
+    wf_parts = []
+    for name, vals in sorted(health.get("workflow_clusters", {}).items()):
+        wf_parts.append(
+            f"{name}={vals['intact_pct']:.0%}/best{vals['best_avg']:.1f}"
+        )
+    if wf_parts:
+        lines.append(f"    health_workflows: {' '.join(wf_parts)}")
+    role = health.get("role_violations", {})
+    prime = health.get("prime_empty", {})
+    hi = health.get("high_importance", {})
+    dup = health.get("duplicates", {})
+    lines.append(
+        "    health_positions: "
+        f"l0_bad_avg={role.get('l0_bad_avg', 0):.2f} "
+        f"l0_empty_avg={role.get('l0_empty_avg', 0):.2f} "
+        f"prime_empty_avg={prime.get('avg', 0):.2f} "
+        f"actionable_prime_avg={prime.get('actionable_avg', 0):.2f} "
+        f"hi_bad_avg={hi.get('bad_position_avg', 0):.2f} "
+        f"xdup_avg={dup.get('cross_layer_avg', 0):.2f}"
+    )
+    if detailed:
+        examples = []
+        for name, vals in sorted(health.get("workflow_clusters", {}).items()):
+            if vals.get("bad_examples"):
+                examples.append(f"{name}:{vals['bad_examples'][:2]}")
+        for key, vals in (("role", role), ("prime", prime), ("hi", hi), ("dup", dup)):
+            if vals.get("examples"):
+                examples.append(f"{key}:{vals['examples'][:3]}")
+        if examples:
+            lines.append(f"    health_examples: {' | '.join(examples)}")
+    return lines
 
 
 def diversity_injection_milestone(plateau_count, fired_milestones, config):
@@ -546,6 +841,8 @@ def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_posit
 
     # Pre-seed unplaced important shortcuts into the base genome
     seeded_genome = preseed_unplaced_shortcuts(current_genome, positions, shortcut_pool, layer_positions)
+    if ctx is not None:
+        seeded_genome, _ = repair_position_compatibility(seeded_genome, ctx)
 
     population = [copy.copy(seeded_genome)]
 
@@ -557,6 +854,8 @@ def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_posit
     # ~30% from previous elites (direct injection)
     elite_budget = int(n_pop * 0.3)
     for elite in prev_elites[:elite_budget]:
+        if ctx is not None:
+            elite, _ = repair_position_compatibility(elite, ctx)
         population.append(copy.copy(elite))
 
     # ~20% wild mutations of previous elites (explore around known good solutions)
@@ -573,6 +872,7 @@ def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_posit
                     base = swap_to_empty(base, ctx)
                 else:
                     base = migrate_shortcut(base, ctx)
+            base, _ = repair_position_compatibility(base, ctx)
             population.append(base)
 
     # Conservative mutations of seeded layout
@@ -581,6 +881,7 @@ def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_posit
         n_swaps = random.randint(1, 5)
         for _ in range(n_swaps):
             ind = swap_within_layer(ind, ctx)
+        ind, _ = repair_position_compatibility(ind, ctx)
         population.append(ind)
 
     # Fill rest with fresh exploration from seeded layout
@@ -595,6 +896,7 @@ def seed_population(current_genome, n_pop, positions, shortcut_pool, layer_posit
                 ind = swap_to_empty(ind, ctx)
             else:
                 ind = migrate_shortcut(ind, ctx)
+        ind, _ = repair_position_compatibility(ind, ctx)
         population.append(ind)
 
     return population[:n_pop]
@@ -616,10 +918,13 @@ def seed_population_scratch(scratch_genome, n_pop, positions, shortcut_pool, lay
         n_swaps = random.randint(0, 15)
         for _ in range(n_swaps):
             ind = swap_within_layer(ind, ctx)
+        ind = repair_seeded_groups(ind, positions, shortcut_pool, layer_positions)
+        ind = preseed_unplaced_shortcuts(ind, positions, shortcut_pool, layer_positions, verbose=False)
         ind, _ = ensure_structural_exits(
             ind, positions, shortcut_pool, layer_positions, access_analyzer,
             randomize=True, top_k=5,
         )
+        ind, _ = repair_position_compatibility(ind, ctx)
         population.append(ind)
         if (idx + 1) % progress_every == 0 or (idx + 1) == n_pop:
             elapsed = time.time() - t0
@@ -759,6 +1064,8 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
         for i in range(1, n, 2):
             if random.random() < cxpb:
                 c1, c2 = pmx_crossover(list(offspring[i-1]), list(offspring[i]), ctx)
+                c1, _ = repair_position_compatibility(c1, ctx)
+                c2, _ = repair_position_compatibility(c2, ctx)
                 offspring[i-1] = creator.Individual(c1)
                 offspring[i] = creator.Individual(c2)
                 del offspring[i-1].fitness.values, offspring[i].fitness.values
@@ -772,7 +1079,8 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                                        generation=gen,
                                        n_ops=intensity,
                                        phase=phase)
-                offspring[i] = creator.Individual(result[0])
+                repaired, _ = repair_position_compatibility(result[0], ctx)
+                offspring[i] = creator.Individual(repaired)
                 del offspring[i].fitness.values
 
         return offspring
@@ -903,7 +1211,8 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
             if i in cpu_set:
                 offspring[i] = creator.Individual(list(population[i]))
             elif modified[i]:
-                ind = creator.Individual(result_np[i].tolist())
+                repaired, _ = repair_position_compatibility(result_np[i].tolist(), ctx)
+                ind = creator.Individual(repaired)
                 del ind.fitness.values
                 offspring[i] = ind
             else:
@@ -917,6 +1226,7 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
             for op in ops:
                 r = custom_mutate(g, ctx, scratch_mode=scratch_mode, generation=gen, n_ops=1, phase=phase)
                 g = r[0]
+            g, _ = repair_position_compatibility(g, ctx)
             offspring[off_idx] = creator.Individual(g)
             if hasattr(offspring[off_idx].fitness, 'values'):
                 del offspring[off_idx].fitness.values
@@ -971,16 +1281,28 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
             return evaluator.evaluate_batch_gpu([list(ind) for ind in pop_list])
         return [toolbox.evaluate(ind) for ind in pop_list]
 
-    fitnesses = batch_evaluate(population)
-    for ind, fit in zip(population, fitnesses):
-        ind.fitness.values = fit
-
-    stats = tools.Statistics(lambda ind: ind.fitness.values)
-    stats.register("min", lambda fits: tuple(min(f[i] for f in fits) for i in range(3)))
-    stats.register("avg", lambda fits: tuple(np.mean([f[i] for f in fits]) for i in range(3)))
-
-    logbook = tools.Logbook()
-    logbook.header = ["gen", "nevals", "min", "avg"]
+    def evaluate_and_assign(pop_list, label):
+        print(f"  {label} ({len(pop_list)} genomes)...")
+        sys.stdout.flush()
+        t_eval = time.perf_counter()
+        fitnesses = batch_evaluate(pop_list)
+        for ind, fit in zip(pop_list, fitnesses):
+            ind.fitness.values = fit
+        elapsed = time.perf_counter() - t_eval
+        if use_gpu_batch and HAS_TORCH and torch.cuda.is_available():
+            alloc = torch.cuda.memory_allocated() / 1e9
+            reserved = torch.cuda.memory_reserved() / 1e9
+            max_alloc = torch.cuda.max_memory_allocated() / 1e9
+            max_reserved = torch.cuda.max_memory_reserved() / 1e9
+            print(
+                f"  {label} complete in {elapsed:.1f}s "
+                f"(vram alloc={alloc:.2f}GB reserved={reserved:.2f}GB "
+                f"peak={max_alloc:.2f}/{max_reserved:.2f}GB)"
+            )
+        else:
+            print(f"  {label} complete in {elapsed:.1f}s")
+        sys.stdout.flush()
+        return fitnesses
 
     checkpoint_interval = config.get("checkpoint_interval", 25)
     ckpt_name = "evolution_scratch_checkpoint.json" if scratch_mode else "evolution_checkpoint.json"
@@ -1015,6 +1337,7 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                     print("  Checkpoint found but contains stale/out-of-range SIDs -- starting fresh")
                     sys.stdout.flush()
                     raise ValueError("checkpoint contains stale SID")
+                saved_pop = [repair_position_compatibility(g, ctx)[0] for g in saved_pop]
                 if evaluator.access_analyzer and any(
                     not evaluator.access_analyzer.validate(g).valid for g in saved_pop
                 ):
@@ -1022,9 +1345,7 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                     sys.stdout.flush()
                     raise ValueError("checkpoint violates layer access invariant")
                 population = [creator.Individual(g) for g in saved_pop]
-                fitnesses = batch_evaluate(population)
-                for ind, fit in zip(population, fitnesses):
-                    ind.fitness.values = fit
+                fitnesses = evaluate_and_assign(population, "Evaluating checkpoint population")
                 start_gen = ckpt.get("generation", 0) + 1
                 convergence = ckpt.get("convergence", [])
                 best_effort_ever = ckpt.get("best_effort_ever", float('inf'))
@@ -1040,9 +1361,7 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
             sys.stdout.flush()
 
     if start_gen == 0:
-        fitnesses = batch_evaluate(population)
-        for ind, fit in zip(population, fitnesses):
-            ind.fitness.values = fit
+        fitnesses = evaluate_and_assign(population, "Evaluating initial population")
 
     stats = tools.Statistics(lambda ind: ind.fitness.values)
     stats.register("min", lambda fits: tuple(min(f[i] for f in fits) for i in range(3)))
@@ -1086,7 +1405,11 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
         if not build_dir:
             return
         try:
-            diagnostics = population_diagnostics(population, positions, shortcut_pool, evaluator)
+            health_enabled = bool(config.get("health_logging", False))
+            diagnostics = population_diagnostics(
+                population, positions, shortcut_pool, evaluator,
+                include_health=health_enabled, health_config=config,
+            )
             cur_front = tools.sortNondominated(population, len(population), first_front_only=True)[0]
             cur_front.sort(key=lambda ind: (ind.fitness.values[2], ind.fitness.values[0], ind.fitness.values[1]))
             interim = []
@@ -1107,11 +1430,37 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                     "genome": genome,
                     "total_assignments": sum(1 for g in genome if g >= 0),
                 })
+            # Save best_weighted, best_effort, best_violations in interim
+            w = config.get("weights", {})
+            viol_w = w.get("violations", 50.0)
+            def _interim_weighted(ind):
+                e, neg_a, v = ind.fitness.values
+                return e + abs(neg_a) + v * viol_w
+            interim_best_weighted = min(population, key=_interim_weighted)
+            interim_best_eff = min(population, key=lambda ind: ind.fitness.values[0])
+            interim_best_viol = min(population, key=lambda ind: ind.fitness.values[2])
+            extras = {}
+            for label, ind in [("best_weighted", interim_best_weighted),
+                               ("best_effort", interim_best_eff),
+                               ("best_violations", interim_best_viol)]:
+                g = list(ind)
+                if _sid_range_valid(g, len(shortcut_pool)):
+                    v_check = evaluator.access_analyzer.validate(g) if evaluator.access_analyzer else None
+                    if v_check is None or v_check.valid:
+                        extras[label] = {
+                            "fitness": {
+                                "effort": round(ind.fitness.values[0], 2),
+                                "adjacency": round(-ind.fitness.values[1], 2),
+                                "violations": round(ind.fitness.values[2], 2),
+                            },
+                            "genome": g,
+                            "total_assignments": sum(1 for x in g if x >= 0),
+                        }
+
             interim_name = "evolution_scratch_results_interim.json" if scratch_mode else "evolution_results_interim.json"
             interim_path = os.path.join(build_dir, interim_name)
             tmp = interim_path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(json_safe({
+            interim_data = {
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     "generation": gen,
                     "status": "in_progress",
@@ -1120,7 +1469,10 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                     "diagnostics": diagnostics,
                     "pareto_front": interim,
                     "convergence": convergence,
-                }), f, indent=2, cls=NumpyEncoder)
+            }
+            interim_data.update(extras)
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(json_safe(interim_data), f, indent=2, cls=NumpyEncoder)
             _safe_replace(tmp, interim_path)
         except Exception as e:
             print(f"  WARNING: interim save failed: {e}")
@@ -1225,7 +1577,15 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
             injection_milestone = diversity_injection_milestone(plateau_count, fired_injection_milestones, config)
             if injection_milestone is not None:
                 from operators import migrate_shortcut
-                injection_rate = float(config.get("diversity_injection_rate", 0.02))
+                base_rate = float(config.get("diversity_injection_rate", 0.02))
+                if injection_milestone >= 4000:
+                    injection_rate = min(0.15, base_rate * 5)
+                elif injection_milestone >= 1500:
+                    injection_rate = min(0.10, base_rate * 3)
+                elif injection_milestone >= 700:
+                    injection_rate = min(0.05, base_rate * 2)
+                else:
+                    injection_rate = base_rate
                 n_inject = max(1, int(pop_size * injection_rate)) if injection_rate > 0 else 0
                 if n_inject <= 0:
                     fired_injection_milestones.add(injection_milestone)
@@ -1239,6 +1599,7 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                             fresh, positions, shortcut_pool, layer_positions, evaluator.access_analyzer,
                             randomize=True, top_k=5,
                         )
+                        fresh, _ = repair_position_compatibility(fresh, ctx)
                         population[ii] = creator.Individual(fresh)
                         del population[ii].fitness.values
                     fresh_fits = batch_evaluate([population[ii] for ii in inject_indices])
@@ -1276,13 +1637,18 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                               f"adj={-fits[:,1].max():.0f}/{-fits[:,1].mean():.0f}/{-fits[:,1].min():.0f} "
                               f"viol={fits[:,2].min():.0f}/{fits[:,2].mean():.0f}/{fits[:,2].std():.0f}")
 
-                        diagnostics = population_diagnostics(population, positions, shortcut_pool, evaluator)
+                        health_enabled = bool(config.get("health_logging", False))
+                        diagnostics = population_diagnostics(
+                            population, positions, shortcut_pool, evaluator,
+                            include_health=health_enabled, health_config=config,
+                        )
                         sv = diagnostics["structural_validity"]
                         sid_h = diagnostics["sid_health"]
                         ex = diagnostics["exit_coverage"]
                         pq = diagnostics["position_quality"]
                         scd = diagnostics["structural_capability_duplicates"]
                         gi = diagnostics.get("group_integrity", {})
+                        health = diagnostics.get("layout_health", {})
                         print(f"    structural: {sv['valid']}/{sv['total']} valid "
                               f"({sv['ratio']:.0%}), missing_exits={ex['missing_layers']}")
                         if sv["valid"] == 0:
@@ -1300,6 +1666,12 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                                 for name, vals in sorted(gi.items())
                             ]
                             print(f"    group_integrity: {' '.join(gi_parts)}")
+                        if health_enabled:
+                            for line in format_layout_health(
+                                health,
+                                detailed=bool(config.get("health_logging_examples", False)),
+                            ):
+                                print(line)
 
                         # Best individual breakdown
                         best_genome = list(best_viol)
@@ -1413,7 +1785,8 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                 save_checkpoint(gen)
                 save_interim_results(gen)
 
-            if plateau_count >= 400:
+            early_stop_plateau = int(config.get("early_stop_plateau", 2500))
+            if plateau_count >= early_stop_plateau:
                 print(f"  EARLY STOP: violations plateaued for {plateau_count} gens at gen {gen}")
                 sys.stdout.flush()
                 break
@@ -1432,7 +1805,15 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
 
     front = tools.sortNondominated(population, len(population), first_front_only=True)[0]
     front.sort(key=lambda ind: ind.fitness.values[0])
-    return front, convergence
+    best_viol = min(population, key=lambda ind: ind.fitness.values[2])
+    best_eff = min(population, key=lambda ind: ind.fitness.values[0])
+    w = config.get("weights", {})
+    viol_w = w.get("violations", 30.0)
+    def _weighted(ind):
+        e, neg_a, v = ind.fitness.values
+        return e + abs(neg_a) + v * viol_w
+    best_weighted = min(population, key=_weighted)
+    return front, convergence, best_viol, best_eff, best_weighted
 
 
 def _config_hash(config):
@@ -1669,18 +2050,18 @@ def main():
         )
         if repaired:
             print("Seeded structural exits into scratch base genome")
-        open_l0 = [i for i, p in enumerate(positions) if p.layer == 0 and current_genome[i] < 0]
+        current_genome = repair_seeded_groups(current_genome, positions, shortcut_pool, layer_positions)
+        current_genome = preseed_unplaced_shortcuts(current_genome, positions, shortcut_pool, layer_positions)
+        current_genome, _ = ensure_structural_exits(
+            current_genome, positions, shortcut_pool, layer_positions
+        )
+        open_l0 = [i for i, p in enumerate(positions)
+                    if p.layer == 0 and not is_frozen_l0_position(p)]
     else:
         current_genome = encode_current_layout(canonical, positions, shortcut_pool)
         layer_positions = build_layer_to_positions(positions)
-        open_l0_keys = set(config.get("open_l0_keys", []))
-        open_l0 = []
-        if open_l0_keys:
-            for i, p in enumerate(positions):
-                if p.layer == 0 and current_genome[i] >= 0:
-                    key_name = shortcut_pool[current_genome[i]].keys
-                    if key_name in open_l0_keys:
-                        open_l0.append(i)
+        open_l0 = [i for i, p in enumerate(positions)
+                    if p.layer == 0 and not is_frozen_l0_position(p)]
 
     evaluator = FitnessEvaluator(
         positions, shortcut_pool, config,
@@ -1693,6 +2074,9 @@ def main():
 
     ctx = OperatorContext(positions, shortcut_pool, layer_positions, evaluator.dynamic_groups)
     ctx.set_frozen_l0(positions, open_l0)
+    current_genome, position_repairs = repair_position_compatibility(current_genome, ctx)
+    if position_repairs:
+        print(f"Repaired {position_repairs} position-role violation(s) in seed genome")
     if HAS_TORCH and device != "cpu":
         ctx.build_gpu_tensors(device)
     assigned_count = sum(1 for g in current_genome if g >= 0)
@@ -1707,10 +2091,14 @@ def main():
     # Run NSGA-II
     print(f"\n--- NSGA-II ({config.get('pop_size', 2000)} pop, {config.get('generations', 500)} gen) ---")
     sys.stdout.flush()
-    front, convergence = run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
+    front, convergence, best_viol_ind, best_eff_ind, best_weighted_ind = run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                                     usage_stats=usage_stats, conjunction_pairs=conjunction_pairs,
                                     build_dir=build_dir, scratch_mode=scratch_mode, ctx=ctx)
-    final_diagnostics = population_diagnostics(front, positions, shortcut_pool, evaluator)
+    health_enabled = bool(config.get("health_logging", False))
+    final_diagnostics = population_diagnostics(
+        front, positions, shortcut_pool, evaluator,
+        include_health=health_enabled, health_config=config,
+    )
     current_pool_hash = pool_hash(shortcut_pool)
 
     pareto_solutions = []
@@ -1800,6 +2188,63 @@ def main():
         "pareto_front": pareto_solutions,
         "convergence": convergence,
     }
+
+    # Save the population's best-violations individual (may not be in pareto front)
+    if best_viol_ind is not None:
+        bv_genome = list(best_viol_ind)
+        bv_valid = _sid_range_valid(bv_genome, len(shortcut_pool))
+        if bv_valid and (evaluator.access_analyzer is None or evaluator.access_analyzer.validate(bv_genome).valid):
+            bv_breakdown = evaluator.evaluate_full(bv_genome)
+            bv_changes = decode_genome(bv_genome, positions, shortcut_pool)
+            output["best_violations"] = {
+                "fitness": {
+                    "effort": round(best_viol_ind.fitness.values[0], 2),
+                    "adjacency": round(-best_viol_ind.fitness.values[1], 2),
+                    "violations": round(best_viol_ind.fitness.values[2], 2),
+                },
+                "scoring_breakdown": {k: round(float(v), 2) if isinstance(v, (int, float)) else v for k, v in bv_breakdown.items()},
+                "total_assignments": sum(1 for g in bv_genome if g >= 0),
+                "genome": bv_genome,
+                "changes": bv_changes[:50],
+            }
+
+    # Save the population's best-effort individual
+    if best_eff_ind is not None:
+        be_genome = list(best_eff_ind)
+        be_valid = _sid_range_valid(be_genome, len(shortcut_pool))
+        if be_valid and (evaluator.access_analyzer is None or evaluator.access_analyzer.validate(be_genome).valid):
+            be_breakdown = evaluator.evaluate_full(be_genome)
+            be_changes = decode_genome(be_genome, positions, shortcut_pool)
+            output["best_effort"] = {
+                "fitness": {
+                    "effort": round(best_eff_ind.fitness.values[0], 2),
+                    "adjacency": round(-best_eff_ind.fitness.values[1], 2),
+                    "violations": round(best_eff_ind.fitness.values[2], 2),
+                },
+                "scoring_breakdown": {k: round(float(v), 2) if isinstance(v, (int, float)) else v for k, v in be_breakdown.items()},
+                "total_assignments": sum(1 for g in be_genome if g >= 0),
+                "genome": be_genome,
+                "changes": be_changes[:50],
+            }
+
+    # Save the population's best weighted-sum individual
+    if best_weighted_ind is not None:
+        bw_genome = list(best_weighted_ind)
+        bw_valid = _sid_range_valid(bw_genome, len(shortcut_pool))
+        if bw_valid and (evaluator.access_analyzer is None or evaluator.access_analyzer.validate(bw_genome).valid):
+            bw_breakdown = evaluator.evaluate_full(bw_genome)
+            bw_changes = decode_genome(bw_genome, positions, shortcut_pool)
+            output["best_weighted"] = {
+                "fitness": {
+                    "effort": round(best_weighted_ind.fitness.values[0], 2),
+                    "adjacency": round(-best_weighted_ind.fitness.values[1], 2),
+                    "violations": round(best_weighted_ind.fitness.values[2], 2),
+                },
+                "scoring_breakdown": {k: round(float(v), 2) if isinstance(v, (int, float)) else v for k, v in bw_breakdown.items()},
+                "total_assignments": sum(1 for g in bw_genome if g >= 0),
+                "genome": bw_genome,
+                "changes": bw_changes[:50],
+            }
 
     if qd_results:
         output["qd_archive"] = qd_archive_stats

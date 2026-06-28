@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from representation import (
     build_shortcut_pool, build_position_index, encode_current_layout,
-    build_layer_to_positions, LAYER_ACCESS,
+    build_layer_to_positions, LAYER_ACCESS, is_frozen_l0_position,
 )
 from fitness import FitnessEvaluator
 from layer_access import LayerAccessAnalyzer, shortcut_capability
@@ -76,15 +76,34 @@ def load_data(build_dir, scratch=False):
 
 def load_best_genome(build_dir, scratch=False):
     prefix = "evolution_scratch" if scratch else "evolution"
-    for suffix in ["_results.json", "_results_interim.json"]:
-        p = Path(build_dir) / f"{prefix}{suffix}"
-        if p.exists():
+    candidates_files = [
+        Path(build_dir) / f"{prefix}_results.json",
+        Path(build_dir) / f"{prefix}_results_interim.json",
+    ]
+    # Prefer the freshest compatible result. During active runs the interim
+    # file is often newer than an old completed/smoke result in the same dir.
+    for p in sorted((p for p in candidates_files if p.exists()),
+                    key=lambda path: path.stat().st_mtime,
+                    reverse=True):
             data = json.loads(p.read_text(encoding="utf-8"))
-            pf = data.get("pareto_front", [])
-            if pf:
-                best = min(pf, key=lambda x: x.get("fitness", {}).get("violations", 1e18))
-                gen = data.get("generation", "?")
-                return best["genome"], gen, best.get("fitness", {}), str(p.name)
+            gen = data.get("generation", "?")
+            candidates = []
+            for key in ("best_weighted", "best_effort", "best_violations"):
+                entry = data.get(key)
+                if entry and entry.get("genome"):
+                    candidates.append(entry)
+            for entry in data.get("pareto_front", []):
+                if entry.get("genome"):
+                    candidates.append(entry)
+            if not candidates:
+                continue
+            feasible = [c for c in candidates
+                        if c.get("fitness", {}).get("violations", 1e18) < 200]
+            if feasible:
+                best = min(feasible, key=lambda x: x["fitness"]["effort"])
+            else:
+                best = min(candidates, key=lambda x: x.get("fitness", {}).get("violations", 1e18))
+            return best["genome"], gen, best.get("fitness", {}), str(p.name)
     return None, None, None, None
 
 
@@ -250,6 +269,44 @@ def analyze(genome, positions, pool, current, canonical, config):
               f"{app} dominates both ({oa:.0%} / {ob:.0%})")
         w("")
 
+    # Structural sanity checks that must be visible in candidate review.
+    l0_thumb_issues = []
+    structural_markers = (
+        "coach_", "select:mb", "momentary_layer", "toggle_layer", "to_layer",
+        "leftalt", "rightalt", "leftcontrol", "rightcontrol",
+        "leftshift", "rightshift", "left gui", "right gui",
+        "spacebar", "return enter", "backspace",
+    )
+    for i, sid in enumerate(genome):
+        p = positions[i]
+        if p.layer != 0 or is_frozen_l0_position(p):
+            continue
+        if sid < 0:
+            l0_thumb_issues.append(f"L0 ({p.x},{p.y}) is empty")
+            continue
+        if sid >= len(pool):
+            continue
+        key_lower = pool[sid].keys.lower()
+        if not any(marker in key_lower for marker in structural_markers):
+            l0_thumb_issues.append(f"L0 ({p.x},{p.y}) has content key {pool[sid].keys}")
+    if l0_thumb_issues:
+        w("L0 mutable thumb issues:")
+        for issue in l0_thumb_issues:
+            w(f"  !! {issue}")
+        w("")
+
+    mouse_button_sids = {
+        s.sid for s in pool
+        if "select:mb" in s.keys.lower()
+    }
+    placed_mouse_buttons = {sid for sid in assigned_sids if sid in mouse_button_sids}
+    missing_mouse_buttons = sorted(mouse_button_sids - placed_mouse_buttons)
+    if missing_mouse_buttons:
+        w("Missing mouse buttons:")
+        for sid in missing_mouse_buttons:
+            w(f"  !! {pool[sid].keys}")
+        w("")
+
     # Risk summary
     risks = []
     if invalid_sid_count:
@@ -271,6 +328,10 @@ def analyze(genome, positions, pool, current, canonical, config):
         risks.append(f"{len(missing)} high-importance shortcuts unplaced")
     if redundant_pairs:
         risks.append(f"{len(redundant_pairs)} redundant layer pair(s) — consider merging")
+    if l0_thumb_issues:
+        risks.append(f"{len(l0_thumb_issues)} L0 mutable thumb issue(s)")
+    if missing_mouse_buttons:
+        risks.append(f"{len(missing_mouse_buttons)} mouse button(s) missing")
 
     if risks:
         w("RISKS:")

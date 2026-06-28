@@ -55,6 +55,33 @@ def is_universal_shortcut(shortcut):
 
 THUMB_HAND = {3: "left", 4: "left", 5: "left", 7: "right", 8: "right"}
 
+# Physically frozen L0 positions: main grid is all frozen, plus 2 specific
+# thumb keys. Everything else on L0 thumbs is mutable — the optimizer
+# decides what goes there via importance scores, not freezing.
+FROZEN_L0_THUMBS = {(4, 4), (7, 5)}
+L0_THUMB_WORTHY_PATTERNS = {
+    "coach_", "select:mb", "spacebar", "return enter", "backspace",
+    "leftshift", "rightshift", "leftcontrol", "rightcontrol",
+    "leftalt", "rightalt", "left gui", "right gui",
+    "momentary_layer", "toggle_layer", "to_layer",
+    "coach_base", "coach_recover", "coach_mouse", "coach_game",
+    "coach_travel", "scroll",
+}
+
+def is_frozen_l0_position(pos):
+    """Position-based freeze: frozen = physically locked in hardware."""
+    if pos.layer != 0:
+        return False
+    if not pos.is_thumb:
+        return True  # main grid (y=0-3)
+    return (pos.x, pos.y) in FROZEN_L0_THUMBS
+
+
+def is_l0_thumb_worthy_shortcut(shortcut):
+    """Return True if a shortcut is allowed on mutable L0 thumb positions."""
+    key_lower = shortcut.keys.lower()
+    return any(pattern in key_lower for pattern in L0_THUMB_WORTHY_PATTERNS)
+
 COACH_BEHAVIORS = {
     "coach_l1_hold", "coach_l2_hold", "coach_l3_hold", "coach_l4_hold",
     "coach_mouse_lock", "coach_game_lock", "coach_base",
@@ -67,13 +94,28 @@ STRUCTURAL_BEHAVIORS = COACH_BEHAVIORS | {
 
 KEY_GROUPS = [
     {"name": "arrows", "params": ["LeftArrow", "RightArrow", "UpArrow", "DownArrow"], "protected": True},
-    {"name": "win_directions", "params": ["LeftArrow", "RightArrow", "UpArrow", "DownArrow"], "mods_required": "win", "protected": True},
-    {"name": "clipboard", "params": ["C", "V", "X", "Z", "Y"], "mods_required": "ctrl"},
+    {"name": "win_directions", "params": ["Left", "Right", "Up", "Down"], "mods_required": "win", "protected": True},
+    {"name": "clipboard", "params": ["C", "V", "X", "Z", "Y"], "mods_required": "ctrl", "protected": True},
     {"name": "mouse_buttons", "behaviors": ["Mouse Key Press"]},
     {"name": "bt_profiles", "behaviors": ["Bluetooth"]},
-    {"name": "f_keys_low", "params": ["F1", "F2", "F3", "F4", "F5", "F6"]},
-    {"name": "f_keys_high", "params": ["F7", "F8", "F9", "F10", "F11", "F12"]},
+    {"name": "f_keys_low", "params": ["F1", "F2", "F3", "F4", "F5", "F6"], "protected": True, "base_only": True},
+    {"name": "f_keys_high", "params": ["F7", "F8", "F9", "F10", "F11", "F12"], "protected": True, "base_only": True},
 ]
+
+
+def shortcut_matches_group(shortcut, group):
+    """Shared static group membership predicate."""
+    if "params" not in group:
+        return False
+    if group.get("base_only") and shortcut.category != "base_key":
+        return False
+    params = {p.upper() for p in group.get("params", [])}
+    if shortcut.base_key.upper() not in params:
+        return False
+    mods_req = group.get("mods_required", "")
+    if mods_req and not any(mods_req.lower() in m.lower() for m in shortcut.modifiers):
+        return False
+    return True
 
 # Importance scores for base/structural keys — these protect keys through math, not freezes.
 # Mouse buttons are critical: no physical mouse, trackball only. MB1-3 are essential.
@@ -602,7 +644,7 @@ def _is_unsupported_shortcut(key):
     return False
 
 
-def build_shortcut_pool(scores, canonical=None):
+def build_shortcut_pool(scores, canonical=None, verbose=False):
     """Build the shortcut pool from app scores, optionally adding base keys from canonical."""
     pool = []
     key_to_idx = {}
@@ -641,9 +683,9 @@ def build_shortcut_pool(scores, canonical=None):
             key_to_idx[key] = sid
             sid += 1
 
-    if filtered_count:
+    if verbose and filtered_count:
         print(f"  Filtered {filtered_count} redundant bare-key shortcuts (Vimium letters, symbols, multi-char)")
-    if unsupported_count:
+    if verbose and unsupported_count:
         print(f"  Filtered {unsupported_count} unsupported shortcuts (chords, modifier-only, unavailable keys)")
 
     if canonical:
@@ -696,6 +738,41 @@ def _add_base_keys_to_pool(pool, key_to_idx, canonical):
             key_to_idx[label] = sid
             sid += 1
 
+    # Deduplicate base keys by ZMK parameter: _base_downarrow and
+    # _base_downarrow_combo both emit "Keyboard DownArrow". The optimizer must
+    # not treat them as distinct placeable shortcuts.
+    # Exclude: layer-switch keys (different behaviors for same layer target),
+    # mouse buttons (different MB numbers share default_transform).
+    _DEDUP_EXCLUDE = {"momentary_layer", "toggle_layer", "to_layer",
+                      "select:mb", "coach_", "default_transform"}
+    param_to_sids = {}
+    for s in pool:
+        if s.category != "base_key" or not s.zmk_parameter:
+            continue
+        if any(ex in s.keys.lower() for ex in _DEDUP_EXCLUDE):
+            continue
+        param_to_sids.setdefault(s.zmk_parameter, []).append(s)
+    remove_sids = set()
+    for param, entries in param_to_sids.items():
+        if len(entries) <= 1:
+            continue
+        entries.sort(key=lambda s: -s.importance)
+        keeper = entries[0]
+        for dup in entries[1:]:
+            keeper.importance = max(keeper.importance, dup.importance)
+            remove_sids.add(dup.sid)
+    if remove_sids:
+        for sid in remove_sids:
+            label = pool[sid].keys
+            if label in key_to_idx:
+                del key_to_idx[label]
+        pool[:] = [s for s in pool if s.sid not in remove_sids]
+        for i, s in enumerate(pool):
+            s.sid = i
+            if s.keys in key_to_idx:
+                key_to_idx[s.keys] = i
+        sid = len(pool)
+
     # Mouse buttons are structural base bindings, but ZMK Studio exports may
     # hide the actual button behind "default_transform" or a frozen game layer.
     # Seed the canonical MB set so scratch runs can build a complete mouse mode.
@@ -711,6 +788,26 @@ def _add_base_keys_to_pool(pool, key_to_idx, canonical):
             importance=BASE_KEY_IMPORTANCE.get(key_id, 5.0),
             base_key=key_id, modifiers=[],
             zmk_parameter=f"MB{mb_num}",
+            apps=["base"],
+        ))
+        key_to_idx[label] = sid
+        sid += 1
+
+    # Ensure ordinary function keys exist as base keys even if the source
+    # layout only contains some of them. Without this, F-key groups can be
+    # impossible to complete from scratch.
+    for f_num in range(1, 13):
+        key_id = f"f{f_num}"
+        label = f"_base_{key_id}"
+        if label in key_to_idx or label in seen_base_keys:
+            continue
+        seen_base_keys.add(label)
+        pool.append(Shortcut(
+            sid=sid, keys=label, action=f"Base key: F{f_num}",
+            app="base", category="base_key",
+            importance=BASE_KEY_IMPORTANCE.get(key_id, 5.0),
+            base_key=f"F{f_num}", modifiers=[],
+            zmk_parameter=f"F{f_num}",
             apps=["base"],
         ))
         key_to_idx[label] = sid
@@ -799,7 +896,7 @@ def build_scratch_genome(canonical, positions, shortcut_pool):
         "_base_coach_base", "_base_coach_recover_base",
     }
     for i, pos in enumerate(positions):
-        if pos.layer == 0 and not pos.is_thumb and full_genome[i] >= 0:
+        if pos.layer == 0 and full_genome[i] >= 0:
             scratch[i] = full_genome[i]
             continue
         if full_genome[i] >= 0:
@@ -808,12 +905,15 @@ def build_scratch_genome(canonical, positions, shortcut_pool):
                 scratch[i] = full_genome[i]
 
     assigned_sids = set(g for g in scratch if g >= 0)
-    unplaced = [s for s in shortcut_pool if s.sid not in assigned_sids and s.importance >= 1.0
-                and s.category != "base_key"]
+    unplaced = [
+        s for s in shortcut_pool
+        if s.sid not in assigned_sids and s.importance >= 1.0
+    ]
     unplaced.sort(key=lambda s: -s.importance)
 
     empty_positions = [(i, positions[i]) for i in range(len(positions))
-                       if scratch[i] < 0 and positions[i].layer > 0]
+                       if scratch[i] < 0 and (positions[i].layer > 0 or
+                       (positions[i].is_thumb and not is_frozen_l0_position(positions[i])))]
     empty_positions.sort(key=lambda x: x[1].effort)
 
     placed = set()

@@ -40,6 +40,21 @@ DEFAULT_CONFIG = {
             "learning_curve": 0.5,
             "app_coherence": 5.0,
             "trackball_proximity": 2.0,
+        },
+        "shortcut_importance_overrides": {},
+        "missing_important_threshold": 6.0,
+        "violation_sub_weights": {
+            "duplicate": 10.0,
+            "l0_displacement": 50.0,
+            "missing_important": 5000000.0,
+            "cross_layer_duplicate": 8.0,
+            "group_split": 200.0,
+            "thumb_occupancy": 200.0,
+            "arrow_order": 500000.0,
+            "hand_bias": 2000.0,
+            "mouse_layer_access": 5000.0,
+            "arrow_scattered": 5000000.0,
+            "layer7_unreachable": 50000000.0,
         }
     },
     "output": {

@@ -1,0 +1,37 @@
+evolution:
+  pop_size: 500
+  n_generations: 999999
+  crossover_prob: 0.7
+  mutation_prob: 0.15
+  seed: 42
+  inject_seed: false
+surrogate:
+  enabled: true
+  hidden_dim: 256
+  embedding_dim: 32
+  batch_size: 256
+  compile: true
+  mixed_precision: true
+  retrain_every: 25
+  exact_eval_every: 25
+  n_initial_samples: 1000
+  surrogate_epochs: 50
+exact_eval:
+  batch_size: 50
+  use_numba: true
+  parity_tolerance: 1e-4
+fitness:
+  weights:
+    effort: 1.0
+    adjacency: 1.5
+    finger_balance: 0.8
+    same_finger: 2.0
+    violations: 50.0
+    workflow_coherence: 30.0
+    trackball_proximity: 5.0
+    app_coherence: 5.0
+    learning_curve: 0.5
+output:
+  build_dir: "build"
+  checkpoint_interval: 500
+  verbose: true

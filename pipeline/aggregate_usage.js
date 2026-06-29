@@ -69,6 +69,21 @@ function run(config) {
   const shortcutEventLog = [];  // flat log for workflow detection
   let earliest = null, latest = null;
 
+  // New optimizer v2 data structures
+  const mouseSessions = [];
+  const corrections = [];
+  const modifierErrors = [];
+  const layerTransitions = [];
+  const layerBounces = [];
+  const layerSticky = [];
+  const shortcutRetries = {};
+  const shortcutNoopHints = {};
+  const byContext = {};
+  const byHand = {};
+  const shortcutFirstSeen = {};
+  const shortcutConfidence = {};  // gap_ms distribution per sequence
+  const sequenceGaps = {};  // raw gap_ms per sequence for CV computation
+
   for (const line of lines) {
     let entry;
     try { entry = JSON.parse(line); } catch { continue; }
@@ -138,6 +153,95 @@ function run(config) {
       continue;
     }
 
+    if (eventType === "mouse_session") {
+      mouseSessions.push({
+        started_with: entry.started_with || "MB1",
+        keyboard_shortcuts: entry.keyboard_shortcuts || [],
+        duration_ms: entry.duration_ms || 0,
+        app: app,
+        layer: layer,
+      });
+      continue;
+    }
+
+    if (eventType === "correction") {
+      corrections.push({
+        attempted: entry.attempted || "",
+        corrected_with: entry.corrected_with || "",
+        gap_ms: entry.gap_ms || 0,
+        app: app,
+      });
+      continue;
+    }
+
+    if (eventType === "modifier_error") {
+      modifierErrors.push({
+        modifier: entry.modifier || "",
+        followed_by: entry.followed_by || "",
+        duration_ms: entry.duration_ms || 0,
+        app: app,
+      });
+      continue;
+    }
+
+    if (eventType === "layer_transition") {
+      layerTransitions.push({
+        from: entry.from || "0",
+        to: entry.to || "0",
+        method: entry.method || "unknown",
+        duration_ms: entry.duration_ms || 0,
+        keys_on_target: entry.keys_on_target || 0,
+        app: app,
+      });
+      continue;
+    }
+
+    if (eventType === "layer_bounce") {
+      layerBounces.push({
+        layers: entry.layers || [],
+        total_ms: entry.total_ms || 0,
+        app: app,
+      });
+      continue;
+    }
+
+    if (eventType === "layer_sticky") {
+      layerSticky.push({
+        layer: entry.layer || "0",
+        duration_ms: entry.duration_ms || 0,
+        keys_pressed: entry.keys_pressed || 0,
+        app: app,
+      });
+      continue;
+    }
+
+    if (eventType === "shortcut_retry") {
+      const rkeys = entry.keys || "unknown";
+      if (!shortcutRetries[rkeys]) shortcutRetries[rkeys] = { count: 0, gaps: [] };
+      shortcutRetries[rkeys].count++;
+      shortcutRetries[rkeys].gaps.push(entry.gap_ms || 0);
+      continue;
+    }
+
+    if (eventType === "shortcut_noop_hint") {
+      const akeys = entry.attempted || "unknown";
+      if (!shortcutNoopHints[akeys]) shortcutNoopHints[akeys] = { count: 0, followed_by: {} };
+      shortcutNoopHints[akeys].count++;
+      const fb = entry.followed_by || "unknown";
+      shortcutNoopHints[akeys].followed_by[fb] = (shortcutNoopHints[akeys].followed_by[fb] || 0) + 1;
+      continue;
+    }
+
+    if (eventType === "app_context") {
+      const ctx = entry.context || "general";
+      if (!byContext[ctx]) byContext[ctx] = { count: 0, apps: {}, inferred_from: {} };
+      byContext[ctx].count++;
+      byContext[ctx].apps[app] = (byContext[ctx].apps[app] || 0) + 1;
+      const inf = entry.inferred_from || "unknown";
+      byContext[ctx].inferred_from[inf] = (byContext[ctx].inferred_from[inf] || 0) + 1;
+      continue;
+    }
+
     if (eventType === "typing_counter") {
       const tkeys = entry.keys || "unknown";
       const tcount = entry.count || 1;
@@ -168,6 +272,29 @@ function run(config) {
 
     byLayer[layer] = (byLayer[layer] || 0) + repeatCount;
 
+    // Hand tracking
+    if (entry.hand) {
+      const h = entry.hand;
+      if (!byHand[h]) byHand[h] = { count: 0, shortcuts: {} };
+      byHand[h].count += repeatCount;
+      byHand[h].shortcuts[keys] = (byHand[h].shortcuts[keys] || 0) + repeatCount;
+    }
+
+    // First-seen tracking (from logger sidecar)
+    if (entry.first_seen) {
+      if (!shortcutFirstSeen[keys] || entry.first_seen < shortcutFirstSeen[keys]) {
+        shortcutFirstSeen[keys] = entry.first_seen;
+      }
+    }
+
+    // Sequence confidence: collect raw gap_ms per sequence for CV computation
+    if (entry.prev && entry.gap_ms) {
+      const seqKey = `${normalizeKeys(entry.prev)} -> ${keys}`;
+      if (!sequenceGaps[seqKey]) sequenceGaps[seqKey] = [];
+      sequenceGaps[seqKey].push(entry.gap_ms);
+    }
+
+    // Sequence tracking (existing)
     if (entry.prev && entry.gap_ms) {
       const seqKey = `${normalizeKeys(entry.prev)} -> ${keys}`;
       if (!sequences[seqKey]) sequences[seqKey] = { count: 0, total_gap_ms: 0 };
@@ -299,6 +426,31 @@ function run(config) {
     }
   }
 
+  // Finalize new optimizer v2 structures
+  // Shortcut confidence: compute CV (coefficient of variation) for each sequence
+  for (const [seqKey, gaps] of Object.entries(sequenceGaps)) {
+    if (gaps.length < 3) continue;
+    const avg = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+    const variance = gaps.reduce((sum, g) => sum + (g - avg) ** 2, 0) / gaps.length;
+    const std = Math.sqrt(variance);
+    const cv = avg > 0 ? std / avg : 0;
+    if (!shortcutConfidence[seqKey]) shortcutConfidence[seqKey] = { avg_gap_ms: 0, cv: 0, sample_count: 0 };
+    shortcutConfidence[seqKey].avg_gap_ms = Math.round(avg);
+    shortcutConfidence[seqKey].cv = Math.round(cv * 100) / 100;
+    shortcutConfidence[seqKey].sample_count = gaps.length;
+  }
+
+  // Aggregate mouse sessions: which keyboard shortcuts are commonly used with mouse
+  const mouseSessionShortcuts = {};
+  for (const ms of mouseSessions) {
+    for (const sk of ms.keyboard_shortcuts) {
+      if (!mouseSessionShortcuts[sk]) mouseSessionShortcuts[sk] = { count: 0, started_with: {} };
+      mouseSessionShortcuts[sk].count++;
+      const sb = ms.started_with || "MB1";
+      mouseSessionShortcuts[sk].started_with[sb] = (mouseSessionShortcuts[sk].started_with[sb] || 0) + 1;
+    }
+  }
+
   const output = {
     timestamp: new Date().toISOString(),
     total_events: lines.length,
@@ -321,6 +473,20 @@ function run(config) {
     layer_switch_activations: layerSwitchActivations,
     hold_heavy: holdHeavy,
     modifier_taps: modifierTaps,
+    // New optimizer v2 fields
+    mouse_sessions: mouseSessions,
+    mouse_session_shortcuts: mouseSessionShortcuts,
+    corrections,
+    modifier_errors: modifierErrors,
+    layer_transitions: layerTransitions,
+    layer_bounces: layerBounces,
+    layer_sticky: layerSticky,
+    shortcut_retries: shortcutRetries,
+    shortcut_noop_hints: shortcutNoopHints,
+    by_context: byContext,
+    by_hand: byHand,
+    shortcut_first_seen: shortcutFirstSeen,
+    shortcut_confidence: shortcutConfidence,
   };
 
   writeBuild("usage_stats.json", output);

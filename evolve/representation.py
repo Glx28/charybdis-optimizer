@@ -235,7 +235,7 @@ for _digit in "0123456789":
     BASE_KEY_IMPORTANCE[_digit] = 20.0
 
 
-def discover_dynamic_groups(conjunction_pairs, usage_stats, shortcut_pool, threshold=0.5):
+def discover_dynamic_groups(conjunction_pairs, usage_stats, shortcut_pool, threshold=0.15):
     """Discover groups from usage sequences and conjunction pairs.
 
     Returns list of dynamic groups: {"name": str, "sids": [int], "weight": float, "protected": True}
@@ -248,7 +248,8 @@ def discover_dynamic_groups(conjunction_pairs, usage_stats, shortcut_pool, thres
         count = data if isinstance(data, (int, float)) else data.get("count", 0)
         if count < 2:
             continue
-        parts = seq_key.split("|")
+        # Usage sequences use " -> " separator, not "|"
+        parts = seq_key.split(" -> ")
         if len(parts) != 2:
             continue
         sid_a = sid_lookup.get(parts[0])
@@ -277,20 +278,31 @@ def discover_dynamic_groups(conjunction_pairs, usage_stats, shortcut_pool, thres
     groups = []
     used_sids = set()
 
-    # Chain-derived groups: chains with 3+ members become multi-SID groups
+    # Chain-derived groups: chains with 2+ members become multi-SID groups
+    # Relaxed: count >= 3 (real workflow), len(parts) >= 2 (at least 2 keys)
+    # Only require 2+ SIDs to be found in the pool (partial chains OK)
     chains = usage_stats.get("chains", {})
+    seen_sid_sets = set()
     for chain_key, chain_data in chains.items():
         parts = chain_key.split(" -> ")
         count = chain_data if isinstance(chain_data, (int, float)) else chain_data.get("count", 0)
-        if count < 3 or len(parts) < 3:
+        if count < 3 or len(parts) < 2:
             continue
         chain_sids = []
         for p in parts:
             sid = sid_lookup.get(p)
             if sid is not None and sid not in chain_sids:
                 chain_sids.append(sid)
-        if len(chain_sids) < 3:
+        if len(chain_sids) < 2:
             continue
+        # Skip if any SID in this chain is already in a group (avoid flooding)
+        if any(s in used_sids for s in chain_sids):
+            continue
+        # Deduplicate by sorted SID set (e.g., [96,155] and [155,96] are the same)
+        sid_set = tuple(sorted(chain_sids))
+        if sid_set in seen_sid_sets:
+            continue
+        seen_sid_sets.add(sid_set)
         name = f"chain_{'_'.join(shortcut_pool[s].keys for s in chain_sids[:3])}"
         groups.append({
             "name": name,

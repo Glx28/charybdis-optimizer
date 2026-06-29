@@ -36,15 +36,16 @@ class FitnessEvaluator:
         self.usage_stats = usage_stats or {}
         self.conjunction_pairs = conjunction_pairs or {}
         self.device = device
-        self.exact_gpu_scoring = bool(config.get("exact_gpu_scoring", config.get("exact_gpu_adjacency", False)))
+        self.exact_gpu_scoring = bool(config.get("exact_gpu_scoring", config.get("exact_gpu_adjacency", True)))
         self.n_positions = len(positions)
         self.n_shortcuts = len(shortcut_pool)
         self.layer_positions = build_layer_to_positions(positions)
         self.current_genome = np.array(current_genome, dtype=np.int32) if current_genome is not None else None
         self.access_analyzer = LayerAccessAnalyzer(canonical, positions, shortcut_pool) if canonical else None
 
+        dg_threshold = float(config.get("dynamic_group_threshold", 0.15))
         self.dynamic_groups = discover_dynamic_groups(
-            self.conjunction_pairs, self.usage_stats, self.pool, threshold=0.3
+            self.conjunction_pairs, self.usage_stats, self.pool, threshold=dg_threshold
         )
         self.all_protected_groups = [g for g in KEY_GROUPS if g.get("protected")] + self.dynamic_groups
 
@@ -125,6 +126,17 @@ class FitnessEvaluator:
                     # Scale: 0% usage -> 0.3x, 50%+ -> 1.0x
                     self.layer_usage_mult[sid, layer] = max(0.3, min(1.0, 0.3 + ratio * 1.4))
 
+        # Track which shortcuts have meaningful per-layer usage data
+        # Used to reduce cross-layer duplicate penalties for useful duplicates
+        self.has_per_layer_usage = np.zeros(S + 1, dtype=np.bool_)
+        for keys, layer_counts in by_layer_shortcut.items():
+            sid = sid_by_keys.get(keys)
+            if sid is None:
+                continue
+            total = sum(layer_counts.values())
+            if total >= 3:
+                self.has_per_layer_usage[sid] = True
+
         # Mouse button usage boost from mouse_by_layer
         mouse_by_layer = self.usage_stats.get("mouse_by_layer", {})
         for s in self.pool:
@@ -136,6 +148,8 @@ class FitnessEvaluator:
                     )
                     if total_clicks >= 3:
                         self.importance_arr[s.sid] = max(self.importance_arr[s.sid], 9.0)
+                    if total_clicks >= 5:
+                        self.has_per_layer_usage[s.sid] = True
 
         # Scroll toggle key boost from scroll_total
         scroll_total = self.usage_stats.get("scroll_total", 0)
@@ -960,6 +974,7 @@ class FitnessEvaluator:
         self.t_layer_switch_cost = torch.tensor(self.layer_switch_cost_matrix, device=d)
         self.t_layer_util = torch.tensor(self.layer_util_arr, device=d)
         self.t_layer_usage_mult = torch.tensor(self.layer_usage_mult, device=d)
+        self.t_has_per_layer_usage = torch.tensor(self.has_per_layer_usage, device=d)
         self.t_shortcut_app_demand = torch.tensor(self.shortcut_app_demand, device=d)
 
         # Conjunction pair tensors
@@ -1853,6 +1868,7 @@ class FitnessEvaluator:
             # (B, N) -> per-layer presence: for each sid, is it on this layer?
             # Encode as: for each layer, which sids are present (B, S)
             sid_layer_count = torch.zeros(B, S, device=d)
+            min_layer_usage = torch.full((B, S), 10.0, device=d)
             for layer_id in unique_layers:
                 if layer_id not in self.t_layer_masks:
                     continue
@@ -1861,15 +1877,32 @@ class FitnessEvaluator:
                 sids_on_layer[~lmask] = S  # sentinel
                 present = torch.zeros(B, S + 1, device=d)
                 present.scatter_(1, sids_on_layer.clamp(max=S), 1.0)
+                present_sids = present[:, :S] > 0
                 sid_layer_count += present[:, :S]
+                usage_mult = self.t_layer_usage_mult[:S, layer_id].unsqueeze(0)
+                min_layer_usage = torch.where(
+                    present_sids,
+                    torch.minimum(min_layer_usage, usage_mult.expand(B, -1)),
+                    min_layer_usage
+                )
             sid_layer_count = sid_layer_count * (1.0 - self.t_capability_sid[:S].unsqueeze(0))
             # Penalize sids on 2+ layers — lighter for 2, escalating for 3+
             imp_s = self.t_importance[:S].unsqueeze(0)
             waste_factor = (10.0 - imp_s).clamp(min=1.0)
             # 2-layer: linear penalty (low-importance dupes waste space)
+            # Reduce penalty for shortcuts with per-layer usage on both layers
             on_two = (sid_layer_count == 2)
-            cross_dupe_viol = (on_two.float() * waste_factor * 0.3).sum(dim=1)
-            # 3+ layers: escalating quadratic
+            has_usage = self.t_has_per_layer_usage[:S].unsqueeze(0)
+            # If has per-layer usage and min usage >= 0.7: no penalty
+            # If has per-layer usage and min usage < 0.7: scale penalty
+            # If no per-layer usage: full penalty
+            scale = torch.where(
+                has_usage & (min_layer_usage < 0.7),
+                ((0.7 - min_layer_usage) / 0.4).clamp(min=0.0, max=1.0),
+                torch.where(has_usage, torch.zeros_like(min_layer_usage), torch.ones_like(min_layer_usage))
+            )
+            cross_dupe_viol = (on_two.float() * waste_factor * 0.3 * scale).sum(dim=1)
+            # 3+ layers: escalating quadratic (no usage-based reduction)
             excess = (sid_layer_count - 2).clamp(min=0)
             cross_dupe_viol += (excess.pow(2) * waste_factor).sum(dim=1)
 
@@ -3278,8 +3311,10 @@ class FitnessEvaluator:
 
     def _cross_layer_duplicate_penalty(self, genome):
         """Penalize shortcuts that appear on more than 2 layers.
-        Escalating cost per extra copy — low-importance duplicates penalized harder
-        since they waste positions that high-importance unplaced shortcuts need."""
+        
+        Reduces penalty for shortcuts with per-layer usage data, since
+        duplicates on layers where the shortcut is actually used are intentional.
+        """
         sid_layers = {}
         for i, sid in enumerate(genome):
             if sid < 0:
@@ -3293,7 +3328,17 @@ class FitnessEvaluator:
             imp = self.importance_arr[sid]
             waste_factor = max(1.0, 10.0 - imp)
             if n == 2:
-                penalty += waste_factor * 0.3
+                if self.has_per_layer_usage[sid]:
+                    # Check if the shortcut has meaningful usage on both layers
+                    mults = [self.layer_usage_mult[sid, layer] for layer in layers]
+                    min_mult = min(mults)
+                    if min_mult >= 0.7:
+                        continue  # Fully justified duplicate
+                    # Scale penalty: 0.3 usage -> full penalty, 0.7 -> 0
+                    scale = (0.7 - min_mult) / 0.4
+                    penalty += waste_factor * 0.3 * scale
+                else:
+                    penalty += waste_factor * 0.3
             elif n > 2:
                 extra = n - 2
                 penalty += extra * extra * waste_factor

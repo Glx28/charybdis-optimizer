@@ -9565,6 +9565,176 @@
           "weighted_access": 1.2000000000000002
         }
       ]
+    },
+    {
+      "id": "mouse",
+      "name": "Mouse",
+      "user_weight": 1,
+      "total_shortcuts": 11,
+      "mapped": 11,
+      "unmapped": 0,
+      "coverage_pct": 100,
+      "weighted_score": 0,
+      "weighted_max": 0,
+      "efficiency_pct": 0,
+      "unmapped_high_frequency": [],
+      "shortcuts": [
+        {
+          "keys": "MB1",
+          "action": "Left click",
+          "category": "mouse",
+          "frequency": "constant",
+          "freq_weight": 10,
+          "importance": 9.0,
+          "mapped": true,
+          "match_count": 1,
+          "best_match": {
+            "context": "system",
+            "coord": "4:2",
+            "effort": 1,
+            "layer": 2
+          },
+          "access_score": 10,
+          "weighted_access": 90,
+          "preferred_hand": "right"
+        },
+        {
+          "keys": "MB2",
+          "action": "Right click",
+          "category": "mouse",
+          "frequency": "constant",
+          "freq_weight": 10,
+          "importance": 9.0,
+          "mapped": true,
+          "match_count": 1,
+          "best_match": {
+            "context": "system",
+            "coord": "5:2",
+            "effort": 1,
+            "layer": 2
+          },
+          "access_score": 10,
+          "weighted_access": 90,
+          "preferred_hand": "right"
+        },
+        {
+          "keys": "MB3",
+          "action": "Middle click",
+          "category": "mouse",
+          "frequency": "high",
+          "freq_weight": 7,
+          "importance": 7.0,
+          "mapped": true,
+          "match_count": 1,
+          "best_match": {
+            "context": "system",
+            "coord": "6:2",
+            "effort": 2,
+            "layer": 2
+          },
+          "access_score": 8,
+          "weighted_access": 56,
+          "preferred_hand": "right"
+        },
+        {
+          "keys": "MB4",
+          "action": "Back button",
+          "category": "mouse",
+          "frequency": "high",
+          "freq_weight": 7,
+          "importance": 7.0,
+          "mapped": true,
+          "match_count": 1,
+          "best_match": {
+            "context": "system",
+            "coord": "3:2",
+            "effort": 2,
+            "layer": 2
+          },
+          "access_score": 8,
+          "weighted_access": 56,
+          "preferred_hand": "right"
+        },
+        {
+          "keys": "MB5",
+          "action": "Forward button",
+          "category": "mouse",
+          "frequency": "high",
+          "freq_weight": 7,
+          "importance": 7.0,
+          "mapped": true,
+          "match_count": 1,
+          "best_match": {
+            "context": "system",
+            "coord": "7:2",
+            "effort": 2,
+            "layer": 2
+          },
+          "access_score": 8,
+          "weighted_access": 56,
+          "preferred_hand": "right"
+        },
+        {
+          "keys": "UpArrow",
+          "action": "Up arrow",
+          "category": "navigation",
+          "frequency": "high",
+          "freq_weight": 7,
+          "importance": 8.0,
+          "mapped": true,
+          "preferred_hand": "either"
+        },
+        {
+          "keys": "DownArrow",
+          "action": "Down arrow",
+          "category": "navigation",
+          "frequency": "high",
+          "freq_weight": 7,
+          "importance": 8.0,
+          "mapped": true,
+          "preferred_hand": "either"
+        },
+        {
+          "keys": "LeftArrow",
+          "action": "Left arrow",
+          "category": "navigation",
+          "frequency": "high",
+          "freq_weight": 7,
+          "importance": 8.0,
+          "mapped": true,
+          "preferred_hand": "either"
+        },
+        {
+          "keys": "RightArrow",
+          "action": "Right arrow",
+          "category": "navigation",
+          "frequency": "high",
+          "freq_weight": 7,
+          "importance": 8.0,
+          "mapped": true,
+          "preferred_hand": "either"
+        },
+        {
+          "keys": "ScrollUp",
+          "action": "Scroll up",
+          "category": "navigation",
+          "frequency": "high",
+          "freq_weight": 7,
+          "importance": 7.0,
+          "mapped": true,
+          "preferred_hand": "either"
+        },
+        {
+          "keys": "ScrollDown",
+          "action": "Scroll down",
+          "category": "navigation",
+          "frequency": "high",
+          "freq_weight": 7,
+          "importance": 7.0,
+          "mapped": true,
+          "preferred_hand": "either"
+        }
+      ]
     }
   ]
 }

@@ -112,12 +112,19 @@ def load_build_data(build_dir):
         pass
 
     conjunction_pairs = {}
+    # Try loading conjunction_pairs.json directly first
     try:
-        reorg = load("reorganize_proposals.json")
-        if "conjunction_pairs_count" in reorg:
-            pass
+        conjunction_pairs = load("conjunction_pairs.json")
     except FileNotFoundError:
         pass
+    # Fall back to reorganize_proposals.json if it has the pairs
+    if not conjunction_pairs:
+        try:
+            reorg = load("reorganize_proposals.json")
+            if "conjunction_pairs" in reorg and isinstance(reorg["conjunction_pairs"], dict):
+                conjunction_pairs = reorg["conjunction_pairs"]
+        except FileNotFoundError:
+            pass
 
     return canonical, scores, usage_stats, conjunction_pairs
 
@@ -335,7 +342,7 @@ def _static_group_sids(shortcut_pool, group):
     return sids
 
 
-def repair_seeded_groups(genome, positions, shortcut_pool, layer_positions):
+def repair_seeded_groups(genome, positions, shortcut_pool, layer_positions, dynamic_groups=None):
     """Move true action groups together during seeding.
 
     Mouse buttons are handled by the trackball workflow seeder/scoring. Other
@@ -382,6 +389,47 @@ def repair_seeded_groups(genome, positions, shortcut_pool, layer_positions):
             target = empty_targets.pop(0)
             repaired[idx] = -1
             repaired[target.gene_idx] = sid
+
+    # Repair dynamic groups (chains, conjunction pairs) the same way
+    for dg in (dynamic_groups or []):
+        sids = [int(s) for s in dg.get("sids", [])]
+        # Skip degenerate groups (duplicate SIDs, same SID twice, etc.)
+        if len(set(sids)) < 2:
+            continue
+        members = [(i, int(sid)) for i, sid in enumerate(repaired) if sid in sids]
+        if len(members) < 2:
+            continue
+        layer_counts = {}
+        for idx, _sid in members:
+            layer_counts[pos_by_idx[idx].layer] = layer_counts.get(pos_by_idx[idx].layer, 0) + 1
+        target_layer = max(layer_counts, key=lambda layer: (layer_counts[layer], -layer))
+        hand_counts = {}
+        for idx, _sid in members:
+            p = pos_by_idx[idx]
+            if p.layer == target_layer:
+                hand_counts[p.hand] = hand_counts.get(p.hand, 0) + 1
+        target_hand = max(hand_counts, key=hand_counts.get) if hand_counts else "left"
+
+        target_members = [pos_by_idx[idx] for idx, _sid in members if pos_by_idx[idx].layer == target_layer]
+        cx = sum(p.x for p in target_members) / max(1, len(target_members))
+        cy = sum(p.y for p in target_members) / max(1, len(target_members))
+
+        empty_targets = [
+            p for p in layer_positions.get(target_layer, [])
+            if repaired[p.gene_idx] < 0 and p.hand == target_hand
+        ]
+        empty_targets.sort(key=lambda p: (abs(p.x - cx) + abs(p.y - cy), p.effort))
+
+        for idx, sid in members:
+            p = pos_by_idx[idx]
+            if p.layer == target_layer and p.hand == target_hand:
+                continue
+            if not empty_targets:
+                break
+            target = empty_targets.pop(0)
+            repaired[idx] = -1
+            repaired[target.gene_idx] = sid
+
     return repaired
 
 
@@ -814,8 +862,12 @@ def diversity_injection_milestone(plateau_count, fired_milestones, config):
     return None
 
 
-def scratch_phase_for_generation(gen, best_violation_history, config, scratch_mode):
-    """Pick mutation phase from scratch improvement rate, with fixed fallback."""
+def scratch_phase_for_generation(gen, best_violation_history, config, scratch_mode,
+                                  best_effort_history=None, best_adjacency_history=None):
+    """Pick mutation phase from scratch improvement rate, with fixed fallback.
+
+    Uses the minimum improvement across all three objectives to decide phase.
+    If any objective is plateaued, switch to exploit."""
     if not scratch_mode:
         return "explore" if gen < 100 else "balanced" if gen < 500 else "exploit"
     if gen < 150:
@@ -824,12 +876,33 @@ def scratch_phase_for_generation(gen, best_violation_history, config, scratch_mo
     if gen >= force_gen:
         return "exploit"
     window = int(config.get("phase_window", 50))
+
+    # Check violation improvement
     if len(best_violation_history) <= window:
         return "balanced"
-    old = float(best_violation_history[-window - 1])
-    new = float(best_violation_history[-1])
-    denom = max(abs(old), 1.0)
-    improvement = (old - new) / denom
+    old_v = float(best_violation_history[-window - 1])
+    new_v = float(best_violation_history[-1])
+    denom_v = max(abs(old_v), 1.0)
+    improvement_v = (old_v - new_v) / denom_v
+
+    # Check effort improvement
+    improvement_e = 1.0
+    if best_effort_history and len(best_effort_history) > window:
+        old_e = float(best_effort_history[-window - 1])
+        new_e = float(best_effort_history[-1])
+        denom_e = max(abs(old_e), 1.0)
+        improvement_e = (old_e - new_e) / denom_e
+
+    # Check adjacency improvement (more negative = better, so old - new is improvement)
+    improvement_a = 1.0
+    if best_adjacency_history and len(best_adjacency_history) > window:
+        old_a = float(best_adjacency_history[-window - 1])
+        new_a = float(best_adjacency_history[-1])
+        denom_a = max(abs(old_a), 1.0)
+        improvement_a = (old_a - new_a) / denom_a
+
+    # Use the minimum improvement across all objectives
+    improvement = min(improvement_v, improvement_e, improvement_a)
     if improvement <= float(config.get("exploit_max_improvement", 0.001)):
         return "exploit"
     return "balanced"
@@ -1058,7 +1131,8 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
         n = len(offspring)
         intensity = plateau_intensity[0]
         gen = current_gen[0]
-        phase = scratch_phase_for_generation(gen, best_violation_history, config, scratch_mode)
+        phase = scratch_phase_for_generation(gen, best_violation_history, config, scratch_mode,
+                                              best_effort_history, best_adjacency_history)
 
         # Crossover pass: pairs of consecutive individuals
         for i in range(1, n, 2):
@@ -1147,7 +1221,8 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
         t_cx = time.perf_counter() - t_cx_start
 
         # Determine phase (shortened explore for faster convergence)
-        phase = scratch_phase_for_generation(gen, best_violation_history, config, scratch_mode)
+        phase = scratch_phase_for_generation(gen, best_violation_history, config, scratch_mode,
+                                              best_effort_history, best_adjacency_history)
 
         # Partition GPU vs CPU mutations
         gpu_mut_indices = []
@@ -1312,8 +1387,15 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
     # Try to resume from checkpoint
     start_gen = 0
     convergence = []
-    best_effort_ever = float('inf')
-    plateau_count = 0
+    best_effort_ever = float('inf')  # best violation (legacy name for checkpoint compat)
+    plateau_count = 0  # violation plateau (legacy)
+    best_effort_ever_eff = float('inf')  # actual best effort score
+    best_adjacency_ever = float('inf')  # best adjacency (most negative = best)
+    effort_plateau_count = 0
+    adjacency_plateau_count = 0
+    best_violation_history = []
+    best_effort_history = []
+    best_adjacency_history = []
 
     if checkpoint_path and os.path.exists(checkpoint_path):
         try:
@@ -1350,6 +1432,10 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                 convergence = ckpt.get("convergence", [])
                 best_effort_ever = ckpt.get("best_effort_ever", float('inf'))
                 plateau_count = ckpt.get("plateau_count", 0)
+                best_effort_ever_eff = ckpt.get("best_effort_ever_eff", float('inf'))
+                best_adjacency_ever = ckpt.get("best_adjacency_ever", float('inf'))
+                effort_plateau_count = ckpt.get("effort_plateau_count", 0)
+                adjacency_plateau_count = ckpt.get("adjacency_plateau_count", 0)
                 print(f"  RESUMED from checkpoint at gen {start_gen - 1} "
                       f"(best effort {best_effort_ever:.1f})")
                 sys.stdout.flush()
@@ -1393,6 +1479,10 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
             "pool_hash": current_pool_hash,
             "best_effort_ever": float(best_effort_ever),
             "plateau_count": int(plateau_count),
+            "best_effort_ever_eff": float(best_effort_ever_eff),
+            "best_adjacency_ever": float(best_adjacency_ever),
+            "effort_plateau_count": int(effort_plateau_count),
+            "adjacency_plateau_count": int(adjacency_plateau_count),
             "convergence": convergence,
         }
         tmp = checkpoint_path + ".tmp"
@@ -1555,26 +1645,47 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
 
             # Multi-objective plateau: track best violations (primary target)
             best_eff = min(population, key=lambda ind: ind.fitness.values[0])
+            best_adj = min(population, key=lambda ind: ind.fitness.values[1])
             best_viol = min(population, key=lambda ind: ind.fitness.values[2])
+            current_best_eff = best_eff.fitness.values[0]
+            current_best_adj = best_adj.fitness.values[1]
             current_best_viol = best_viol.fitness.values[2]
             best_violation_history.append(float(current_best_viol))
+            best_effort_history.append(float(current_best_eff))
+            best_adjacency_history.append(float(current_best_adj))
 
+            # Update per-objective plateaus
             if current_best_viol < best_effort_ever - 1.0:
                 best_effort_ever = current_best_viol
                 plateau_count = 0
             else:
                 plateau_count += 1
 
+            if current_best_eff < best_effort_ever_eff - 1.0:
+                best_effort_ever_eff = current_best_eff
+                effort_plateau_count = 0
+            else:
+                effort_plateau_count += 1
+
+            if current_best_adj < best_adjacency_ever - 1.0:
+                best_adjacency_ever = current_best_adj
+                adjacency_plateau_count = 0
+            else:
+                adjacency_plateau_count += 1
+
+            # Combined plateau: use the maximum of all objective plateaus
+            combined_plateau = max(plateau_count, effort_plateau_count, adjacency_plateau_count)
+
             # Adaptive mutation intensity: escalate when stuck
-            if plateau_count < 50:
+            if combined_plateau < 50:
                 plateau_intensity[0] = 1
-            elif plateau_count < 150:
+            elif combined_plateau < 150:
                 plateau_intensity[0] = 2
             else:
                 plateau_intensity[0] = 3
 
             # Diversity injection: replace a small fraction at fixed plateau milestones.
-            injection_milestone = diversity_injection_milestone(plateau_count, fired_injection_milestones, config)
+            injection_milestone = diversity_injection_milestone(combined_plateau, fired_injection_milestones, config)
             if injection_milestone is not None:
                 from operators import migrate_shortcut
                 base_rate = float(config.get("diversity_injection_rate", 0.02))
@@ -1607,7 +1718,7 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                         population[ii].fitness.values = fresh_fits[ii_idx]
                     fired_injection_milestones.add(injection_milestone)
                     pop_cache[0] = None
-                    print(f"  Injected {n_inject} fresh genomes at plateau {plateau_count} (milestone {injection_milestone})")
+                    print(f"  Injected {n_inject} fresh genomes at plateau {combined_plateau} (milestone {injection_milestone})")
                     sys.stdout.flush()
 
             # Decay violation threshold for feasibility-first selection
@@ -1616,10 +1727,11 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
             if gen % checkpoint_interval == 0 or gen == n_gen - 1:
                 elapsed = time.time() - t0
                 mut_info = f" mut_x{plateau_intensity[0]}" if plateau_intensity[0] > 1 else ""
+                plateau_info = f" p={plateau_count}/{effort_plateau_count}/{adjacency_plateau_count}"
                 print(f"  Gen {gen:4d}: eff={best_eff.fitness.values[0]:.0f} "
                       f"adj={-best_eff.fitness.values[1]:.0f} "
                       f"viol={best_viol.fitness.values[2]:.0f} "
-                      f"({elapsed:.1f}s) plateau={plateau_count}{mut_info}")
+                      f"({elapsed:.1f}s) plateau={combined_plateau}{mut_info}{plateau_info}")
 
                 if verbose:
                     try:
@@ -1678,7 +1790,8 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                         bd = evaluator.evaluate_full(best_genome)
                         skip_keys = {"effort", "adjacency", "violations", "layer_access_valid",
                                      "layer_exit_valid", "layer_access_cost", "layer_access_errors",
-                                     "layer_demand", "per_layer_access_costs", "per_layer_depth"}
+                                     "layer_demand", "per_layer_access_costs", "per_layer_depth",
+                                     "violation_breakdown"}
                         parts = []
                         for k, val_v in bd.items():
                             if k in skip_keys:
@@ -1691,6 +1804,15 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                                 parts.append(f"{k}={fv:.1f}")
                         if parts:
                             print(f"    best: {', '.join(parts)}")
+                        # Violation breakdown
+                        vbreak = bd.get("violation_breakdown")
+                        if vbreak and isinstance(vbreak, dict):
+                            vb_parts = []
+                            for vname, vval in sorted(vbreak.items(), key=lambda x: -x[1]):
+                                if abs(vval) > 0.01:
+                                    vb_parts.append(f"{vname}={vval:.1f}")
+                            if vb_parts:
+                                print(f"    violation_breakdown: {', '.join(vb_parts)}")
                         offenders = evaluator.same_finger_offenders(best_genome, limit=10) if hasattr(evaluator, "same_finger_offenders") else []
                         if offenders:
                             offender_parts = [
@@ -1759,7 +1881,8 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                                   f"out={tv.get('data_out',0)/nc*1000:.0f}")
 
                         # Phase + operator distribution
-                        cur_phase = scratch_phase_for_generation(gen, best_violation_history, config, scratch_mode)
+                        cur_phase = scratch_phase_for_generation(gen, best_violation_history, config, scratch_mode,
+                                                                    best_effort_history, best_adjacency_history)
                         op_names = {0:"swp",1:"s2e",2:"mig",3:"grp",4:"thm",
                                     5:"dup",6:"coh",7:"sly",8:"red",9:"xld"}
                         op_parts = []
@@ -1786,8 +1909,9 @@ def run_nsga2(evaluator, current_genome, positions, shortcut_pool, config,
                 save_interim_results(gen)
 
             early_stop_plateau = int(config.get("early_stop_plateau", 2500))
-            if plateau_count >= early_stop_plateau:
-                print(f"  EARLY STOP: violations plateaued for {plateau_count} gens at gen {gen}")
+            if combined_plateau >= early_stop_plateau:
+                print(f"  EARLY STOP: combined plateau {combined_plateau} (v/e/a={plateau_count}/{effort_plateau_count}/{adjacency_plateau_count}) "
+                      f"for {combined_plateau} gens at gen {gen}")
                 sys.stdout.flush()
                 break
 
@@ -1910,8 +2034,11 @@ def main():
         print("CHARYBDIS EVOLUTIONARY LAYOUT OPTIMIZER")
     print("=" * 60)
 
-    canonical, scores, usage_stats, _ = load_build_data(build_dir)
+    canonical, scores, usage_stats, loaded_conj_pairs = load_build_data(build_dir)
     conjunction_pairs = build_conjunction_pairs_from_scores(scores)
+    # Merge loaded conjunction_pairs from build dir (e.g., from previous runs or pipeline output)
+    for key, val in loaded_conj_pairs.items():
+        conjunction_pairs[key] = conjunction_pairs.get(key, 0) + val
 
     # Merge real-world usage sequences as conjunction pairs (stronger than corpus-derived)
     usage_sequences = usage_stats.get("sequences", {})
@@ -2026,7 +2153,8 @@ def main():
     print(f"Shortcuts: {len(shortcut_pool)} in corpus")
     print(f"Conjunction pairs: {len(conjunction_pairs)}")
     from representation import discover_dynamic_groups
-    preview_dg = discover_dynamic_groups(conjunction_pairs, usage_stats, shortcut_pool, threshold=0.3)
+    dg_threshold = float(config.get("dynamic_group_threshold", 0.15))
+    preview_dg = discover_dynamic_groups(conjunction_pairs, usage_stats, shortcut_pool, threshold=dg_threshold)
     print(f"Dynamic groups discovered: {len(preview_dg)}")
 
     # Auto-detect GPU
@@ -2050,7 +2178,11 @@ def main():
         )
         if repaired:
             print("Seeded structural exits into scratch base genome")
-        current_genome = repair_seeded_groups(current_genome, positions, shortcut_pool, layer_positions)
+        # Discover dynamic groups early so we can pre-seed them during repair
+        from representation import discover_dynamic_groups
+        dg_threshold = float(config.get("dynamic_group_threshold", 0.15))
+        _dynamic_groups = discover_dynamic_groups(conjunction_pairs, usage_stats, shortcut_pool, threshold=dg_threshold)
+        current_genome = repair_seeded_groups(current_genome, positions, shortcut_pool, layer_positions, dynamic_groups=_dynamic_groups)
         current_genome = preseed_unplaced_shortcuts(current_genome, positions, shortcut_pool, layer_positions)
         current_genome, _ = ensure_structural_exits(
             current_genome, positions, shortcut_pool, layer_positions
@@ -2062,6 +2194,7 @@ def main():
         layer_positions = build_layer_to_positions(positions)
         open_l0 = [i for i, p in enumerate(positions)
                     if p.layer == 0 and not is_frozen_l0_position(p)]
+        _dynamic_groups = None
 
     evaluator = FitnessEvaluator(
         positions, shortcut_pool, config,

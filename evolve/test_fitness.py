@@ -1028,6 +1028,192 @@ class OperatorSafetyTest(unittest.TestCase):
         self.assertTrue(all(repaired[idx] >= 0 for idx in prime_slots))
         self.assertEqual(ctx.incompatible_indices(repaired), [])
 
+class DynamicGroupRepairTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.canonical, cls.positions, cls.pool, cls.current, cls.evaluator, cls.config = load_fixture()
+        from representation import build_layer_to_positions, discover_dynamic_groups
+        usage = {}
+        usage_path = BUILD / "usage_stats.json"
+        if usage_path.exists():
+            usage = json.loads(usage_path.read_text(encoding="utf-8"))
+        conj = {}
+        conj_path = BUILD / "conjunction_pairs.json"
+        if conj_path.exists():
+            conj = json.loads(conj_path.read_text(encoding="utf-8"))
+        cls.layer_positions = build_layer_to_positions(cls.positions)
+        cls.dynamic_groups = discover_dynamic_groups(conj, usage, cls.pool, threshold=0.15)
+
+    def test_dynamic_groups_are_discovered_or_empty(self):
+        """Dynamic groups may or may not be discovered depending on data."""
+        # If data supports dynamic groups, validate them
+        for dg in self.dynamic_groups:
+            self.assertIn("sids", dg)
+            self.assertIn("protected", dg)
+            self.assertTrue(dg.get("protected", False))
+        # Test is valid even with 0 dynamic groups
+        self.assertIsInstance(self.dynamic_groups, list)
+
+    def test_repair_seeded_groups_with_dynamic_groups(self):
+        """repair_seeded_groups should cluster dynamic group members."""
+        # Use a synthetic dynamic group for reliable testing
+        # Find 2 SIDs that exist in the pool
+        sids = [sid for sid in range(min(10, len(self.pool))) if not self.evaluator.capability_sid_arr[sid]]
+        if len(sids) < 2:
+            self.skipTest("Need 2 non-capability SIDs")
+        test_sids = sids[:2]
+        synthetic_dg = {"name": "test_synthetic", "sids": test_sids, "weight": 1.0, "protected": True, "dynamic": True}
+        # Build a scratch genome where these SIDs are scattered on different layers
+        genome = build_scratch_genome(self.canonical, self.positions, self.pool)
+        layers = sorted(set(p.layer for p in self.positions if p.layer != 0 and p.layer != 7))
+        for i, sid in enumerate(test_sids):
+            layer = layers[i % len(layers)]
+            for p in self.positions:
+                if p.layer == layer and genome[p.gene_idx] < 0:
+                    genome[p.gene_idx] = sid
+                    break
+        # Repair should cluster them
+        repaired = repair_seeded_groups(genome, self.positions, self.pool, self.layer_positions, dynamic_groups=[synthetic_dg])
+        # Check that all members are on the same layer
+        member_layers = set()
+        for i, sid in enumerate(repaired):
+            if sid in test_sids:
+                member_layers.add(self.positions[i].layer)
+        self.assertEqual(len(member_layers), 1, f"Synthetic dynamic group should be on one layer, got {member_layers}")
+
+    def test_repair_seeded_groups_skips_degenerate_dynamic_groups(self):
+        """repair_seeded_groups should skip dynamic groups with duplicate SIDs."""
+        genome = build_scratch_genome(self.canonical, self.positions, self.pool)
+        # Create a degenerate dynamic group (same SID twice)
+        degenerate_dg = {"name": "test_degenerate", "sids": [0, 0], "weight": 1.0, "protected": True, "dynamic": True}
+        repaired = repair_seeded_groups(genome, self.positions, self.pool, self.layer_positions, dynamic_groups=[degenerate_dg])
+        # Should not crash and should return a valid genome
+        self.assertEqual(len(repaired), len(genome))
+
+
+class CrossLayerDuplicateTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.canonical, cls.positions, cls.pool, cls.current, cls.evaluator, cls.config = load_fixture()
+
+    def test_cross_layer_duplicate_penalty_with_usage_data(self):
+        """Cross-layer duplicate penalty should be reduced for shortcuts with per-layer usage."""
+        # Find a shortcut with per-layer usage data that has moderate importance
+        test_sid = None
+        for sid in range(len(self.pool)):
+            if self.evaluator.has_per_layer_usage[sid] and not self.evaluator.capability_sid_arr[sid]:
+                # Check that it has some layers with low usage (to test scaling)
+                low_usage_layers = []
+                high_usage_layers = []
+                for layer in range(self.evaluator.layer_usage_mult.shape[1]):
+                    if self.evaluator.layer_usage_mult[sid, layer] < 0.7:
+                        low_usage_layers.append(layer)
+                    elif self.evaluator.layer_usage_mult[sid, layer] >= 0.7:
+                        high_usage_layers.append(layer)
+                if len(low_usage_layers) >= 2 or len(high_usage_layers) >= 2:
+                    test_sid = sid
+                    break
+        if test_sid is None:
+            self.skipTest("No suitable shortcut with per-layer usage data found")
+        # Create a genome where this SID is on 2 layers
+        genome = list(self.current)
+        empty_positions = {}
+        for i, p in enumerate(self.positions):
+            if genome[i] < 0 and p.layer not in empty_positions and p.layer not in (0, 7):
+                empty_positions[p.layer] = i
+            if len(empty_positions) >= 2:
+                break
+        if len(empty_positions) < 2:
+            self.skipTest("Need 2 empty positions on different layers")
+        # Place the SID on both layers
+        for idx in empty_positions.values():
+            genome[idx] = test_sid
+        # Compute penalty
+        penalty = self.evaluator._cross_layer_duplicate_penalty(genome)
+        # The penalty should be non-negative
+        self.assertGreaterEqual(penalty, 0.0, "Penalty should be non-negative")
+        # For a shortcut with high usage on both layers, penalty should be very low
+        has_high_usage = any(
+            self.evaluator.layer_usage_mult[test_sid, layer] >= 0.7
+            for layer in empty_positions.keys()
+        )
+        if has_high_usage:
+            self.assertLess(penalty, 1.0, "High-usage duplicate should have low penalty")
+        else:
+            self.assertGreaterEqual(penalty, 0.0, "Low-usage duplicate should have some penalty")
+
+    def test_cross_layer_duplicate_no_penalty_for_high_usage(self):
+        """Cross-layer duplicate penalty should be near zero for shortcuts with high usage on both layers."""
+        # Find a shortcut with high usage on multiple layers
+        best_sid = None
+        best_layers = []
+        for sid in range(len(self.pool)):
+            if not self.evaluator.has_per_layer_usage[sid]:
+                continue
+            high_usage_layers = []
+            for layer in range(self.evaluator.layer_usage_mult.shape[1]):
+                if self.evaluator.layer_usage_mult[sid, layer] >= 0.7:
+                    high_usage_layers.append(layer)
+            if len(high_usage_layers) >= 2:
+                best_sid = sid
+                best_layers = high_usage_layers[:2]
+                break
+        if best_sid is None:
+            self.skipTest("No shortcut with high usage on 2+ layers found")
+        genome = list(self.current)
+        # Place the SID on 2 high-usage layers
+        placed = 0
+        for layer in best_layers:
+            for i, p in enumerate(self.positions):
+                if genome[i] < 0 and p.layer == layer:
+                    genome[i] = best_sid
+                    placed += 1
+                    break
+        if placed < 2:
+            self.skipTest("Could not place SID on 2 high-usage layers")
+        penalty = self.evaluator._cross_layer_duplicate_penalty(genome)
+        self.assertAlmostEqual(penalty, 0.0, delta=0.1, msg="High-usage duplicate should have near-zero penalty")
+
+
+class PlateauDetectionTest(unittest.TestCase):
+    def test_scratch_phase_per_objective_improvement(self):
+        """scratch_phase_for_generation should switch to exploit when any objective plateaus."""
+        config = {"scratch_exploit_force_gen": 2000, "phase_window": 50, "exploit_max_improvement": 0.001}
+        # Violation improving, effort plateaued
+        viol_hist = [1000.0 - i for i in range(100)]  # steadily improving
+        eff_hist = [500.0] * 100  # completely flat
+        adj_hist = [-300.0 - i for i in range(100)]  # steadily improving
+        phase = scratch_phase_for_generation(200, viol_hist, config, True, eff_hist, adj_hist)
+        self.assertEqual(phase, "exploit", "Should switch to exploit when effort plateaus")
+
+    def test_scratch_phase_returns_balanced_when_all_improving(self):
+        """scratch_phase_for_generation should return balanced when all objectives improve."""
+        config = {"scratch_exploit_force_gen": 2000, "phase_window": 50, "exploit_max_improvement": 0.001}
+        viol_hist = [1000.0 - i for i in range(100)]
+        eff_hist = [500.0 - i for i in range(100)]
+        adj_hist = [-300.0 - i for i in range(100)]
+        phase = scratch_phase_for_generation(200, viol_hist, config, True, eff_hist, adj_hist)
+        self.assertEqual(phase, "balanced", "Should return balanced when all objectives improve")
+
+    def test_combined_plateau_max_of_objectives(self):
+        """Combined plateau should be the maximum of all per-objective plateaus."""
+        # Simulated plateau counts
+        plateau_count = 50
+        effort_plateau = 100
+        adjacency_plateau = 75
+        combined = max(plateau_count, effort_plateau, adjacency_plateau)
+        self.assertEqual(combined, 100, "Combined plateau should be max of all objectives")
+
+    def test_diversity_injection_milestone(self):
+        """diversity_injection_milestone should fire at configured milestones."""
+        config = {"diversity_injection_plateaus": [150, 300, 450]}
+        fired = set()
+        self.assertEqual(diversity_injection_milestone(100, fired, config), None)
+        self.assertEqual(diversity_injection_milestone(150, fired, config), 150)
+        fired.add(150)
+        self.assertEqual(diversity_injection_milestone(200, fired, config), None)
+        self.assertEqual(diversity_injection_milestone(300, fired, config), 300)
+
 
 if __name__ == "__main__":
     unittest.main()

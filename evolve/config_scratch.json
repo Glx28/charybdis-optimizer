@@ -21,6 +21,7 @@
   "pareto_front_size": 30,
   "seed": null,
   "use_gpu": true,
+  "dynamic_group_threshold": 0.15,
   "qd_grid_dims": [10, 10],
   "qd_behavior_dims": ["app_balance", "thumb_utilization"],
   "weights": {

@@ -18,3 +18,4 @@ wait_and_save.ps1
 SESSION*_PROMPT.md
 .claude/
 build_temp/
+build/*.log

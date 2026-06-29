@@ -17,3 +17,4 @@ save_best_run.ps1
 wait_and_save.ps1
 SESSION*_PROMPT.md
 .claude/
+build_temp/

@@ -1,6 +1,9 @@
 build/*.json
 !build/canonical.json
 !build/app_shortcut_scores.json
+build/*.npz
+build/*.pstats
+build/*.txt
 build/*checkpoint*.npz
 build/*checkpoint*.json
 build/*results_interim.json
